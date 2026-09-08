@@ -29,3 +29,8 @@ starter-datasets.zip
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Frontend build & dependencies
+node_modules/
+frontend/dist/
+frontend/node_modules/

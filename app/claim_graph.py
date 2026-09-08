@@ -1205,9 +1205,12 @@ def get_assignment_cases(graph: ClaimGraph) -> dict:
             "subject": best_c.subject,
             "predicate": best_c.predicate,
             "case_type": CaseType.CORROBORATED.value,
+            "dispute_code": getattr(best_c, "dispute_code", DisputeCode.AGREEMENT_EXACT.value),
+            "dispute_detail": getattr(best_c, "dispute_detail", None),
             "documents_involved": best_c.doc_count,
             "evidence": [e.model_dump() for e in best_c.evidence],
             "corroborating_edges": [e.model_dump(mode="json") for e in corr_edges],
+            "edges": [e.model_dump(mode="json") for e in corr_edges],
             "explanation": f"INDEPENDENT CORROBORATION: Independent sources confirm matching figures for '{best_c.subject}' / '{best_c.predicate}'. ({corr_edges[0].explanation})",
         }
     else:
@@ -1220,9 +1223,12 @@ def get_assignment_cases(graph: ClaimGraph) -> dict:
                 "subject": best.subject,
                 "predicate": best.predicate,
                 "case_type": CaseType.CORROBORATED.value,
+                "dispute_code": getattr(best, "dispute_code", DisputeCode.AGREEMENT_EXACT.value),
+                "dispute_detail": getattr(best, "dispute_detail", None),
                 "documents_involved": best.doc_count,
                 "evidence": [e.model_dump() for e in best.evidence],
                 "corroborating_edges": [e.model_dump(mode="json") for e in best.edges if e.edge_type == EdgeType.CORROBORATES],
+                "edges": [e.model_dump(mode="json") for e in best.edges if e.edge_type == EdgeType.CORROBORATES],
                 "explanation": best.explanation,
             }
 
@@ -1255,6 +1261,8 @@ def get_assignment_cases(graph: ClaimGraph) -> dict:
             "subject": best.subject,
             "predicate": best.predicate,
             "case_type": best.case_type.value,
+            "dispute_code": getattr(best, "dispute_code", DisputeCode.DISPUTE_GENUINE_CONFLICT.value),
+            "dispute_detail": getattr(best, "dispute_detail", None),
             "documents_involved": best.doc_count,
             "evidence": [e.model_dump() for e in best.evidence],
             "edges": [e.model_dump(mode="json") for e in best.edges],
@@ -1276,6 +1284,8 @@ def get_assignment_cases(graph: ClaimGraph) -> dict:
             "subject": best.subject,
             "predicate": best.predicate,
             "case_type": best.case_type.value,
+            "dispute_code": getattr(best, "dispute_code", DisputeCode.DISPUTE_TEMPORAL_DRIFT.value),
+            "dispute_detail": getattr(best, "dispute_detail", None),
             "reconciliation_dimension": best.case_type.value.replace("reconciled_", ""),
             "documents_involved": best.doc_count,
             "evidence": [e.model_dump() for e in best.evidence],

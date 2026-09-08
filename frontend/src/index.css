@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-surface: #fafafa;
+    --bg-card: #ffffff;
+    --border-hairline: #e4e4e7;
+    --text-primary: #09090b;
+    --text-muted: #52525b;
+  }
+
+  body {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Verbatim source quote styling */
+.source-quote {
+  font-family: var(--font-mono, "SF Mono", Menlo, Monaco, Consolas, monospace);
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+}
+
+/* Highlighted span inside verbatim quotes */
+.evidence-highlight {
+  background-color: #fef08a; /* Soft highlighter yellow */
+  color: #1c1917;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+.evidence-highlight-contradict {
+  background-color: #fecaca; /* Soft red highlight for contradiction */
+  color: #7f1d1d;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.evidence-highlight-corroborate {
+  background-color: #ccfbf1; /* Soft teal highlight */
+  color: #115e59;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+.evidence-highlight-reconcile {
+  background-color: #dbeafe; /* Soft blue highlight */
+  color: #1e40af;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-weight: 500;
+}

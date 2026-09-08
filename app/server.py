@@ -1,8 +1,16 @@
+import asyncio
+import json
+import logging
+import os
 import shutil
+import time
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from app.claim_graph import (
     append_document_to_claim_graph,
@@ -11,8 +19,11 @@ from app.claim_graph import (
 )
 from app.contradiction import detect_contradictions
 from app.extractor import GeminiFactExtractor
-from app.pdf_parser import chunk_document, parse_pdf
+from app.models import ClaimGraph, ExtractedFacts, Fact
+from app.pdf_parser import chunk_document, get_word_bboxes, parse_pdf
 from app.storage import SQLiteStorage
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Fact Knowledge Layer", version="0.4.0")
 
@@ -463,4 +474,306 @@ async def get_reconciliation_cases():
         )
 
     return get_assignment_cases(graph)
+
+
+@app.get("/reconcile/latest")
+async def get_latest_reconciliation():
+    """Get the latest full reconciliation ClaimGraph."""
+    graph = reconciliation_db.get("latest") or storage.get_claim_graph("latest")
+    if not graph:
+        raise HTTPException(
+            404,
+            "No reconciliation graph available. Run POST /reconcile first.",
+        )
+    return graph
+
+
+# ---------------------------------------------------------------------------
+# Companion endpoints for UI & Real Pipeline Progress
+# ---------------------------------------------------------------------------
+
+def _find_document_file(filename: str) -> Path | None:
+    """Resolve a document's PDF file path across uploads and starter datasets."""
+    candidates = [
+        UPLOAD_DIR / filename,
+        Path("starter-datasets/india-macroeconomy") / filename,
+        Path("starter-datasets/delhivery") / filename,
+        Path(filename),
+    ]
+    for c in candidates:
+        if c.exists():
+            return c.resolve()
+    return None
+
+
+def _check_docling_available() -> bool:
+    try:
+        from docling.document_converter import DocumentConverter
+        return True
+    except Exception:
+        return False
+
+
+def _check_nli_available() -> bool:
+    try:
+        from sentence_transformers import CrossEncoder
+        return True
+    except Exception:
+        return False
+
+
+@app.get("/system/capabilities")
+async def get_capabilities():
+    """Return runtime status of optional model and service capabilities."""
+    latest_graph = storage.get_claim_graph("latest") or reconciliation_db.get("latest")
+    return {
+        "gemini_api_key_configured": bool(os.environ.get("GEMINI_API_KEY")),
+        "voyage_api_key_configured": bool(os.environ.get("VOYAGE_API_KEY")),
+        "docling_available": _check_docling_available(),
+        "nli_model_available": _check_nli_available(),
+        "loaded_documents": len(storage.list_documents()),
+        "extracted_documents": len(storage.list_extracted_doc_ids()),
+        "has_reconciliation": latest_graph is not None,
+    }
+
+
+@app.get("/documents/{doc_id}/file")
+async def get_document_file(doc_id: str):
+    """Serve the raw PDF file for in-browser viewing."""
+    doc = storage.get_document(doc_id) or documents.get(doc_id)
+    if not doc:
+        raise HTTPException(404, f"Document '{doc_id}' not found")
+    filepath = _find_document_file(doc.filename)
+    if not filepath or not filepath.exists():
+        raise HTTPException(404, f"PDF file '{doc.filename}' not found on disk")
+    return FileResponse(
+        str(filepath),
+        media_type="application/pdf",
+        filename=doc.filename,
+    )
+
+
+@app.get("/documents/{doc_id}/page/{page_num}/word-bboxes")
+async def get_page_word_bboxes(doc_id: str, page_num: int):
+    """Retrieve word bounding boxes for in-place quote highlighting on a PDF page."""
+    doc = storage.get_document(doc_id) or documents.get(doc_id)
+    if not doc:
+        raise HTTPException(404, f"Document '{doc_id}' not found")
+    if page_num < 0 or page_num >= doc.page_count:
+        raise HTTPException(400, f"Page {page_num} out of range (0-{doc.page_count - 1})")
+    filepath = _find_document_file(doc.filename)
+    if not filepath or not filepath.exists():
+        raise HTTPException(404, f"PDF file '{doc.filename}' not found on disk")
+    try:
+        bboxes = get_word_bboxes(filepath, page_num)
+        return {"doc_id": doc_id, "page_num": page_num, "words": bboxes}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to compute word bounding boxes: {e}")
+
+
+# In-memory pipeline job registry
+pipeline_jobs: dict[str, dict] = {}
+
+
+class PipelineStartRequest(BaseModel):
+    doc_ids: list[str] | None = None
+    target_pages: dict[str, list[int]] | None = None
+    nli_threshold: float = 0.7
+
+
+async def _run_pipeline_job(
+    job_id: str,
+    doc_ids: list[str],
+    target_pages_map: dict[str, list[int]] | None,
+    nli_threshold: float,
+):
+    job = pipeline_jobs[job_id]
+    t0 = time.time()
+    try:
+        extractor = GeminiFactExtractor()
+        total_facts = 0
+
+        for idx, d_id in enumerate(doc_ids):
+            doc = documents.get(d_id) or storage.get_document(d_id)
+            if not doc:
+                continue
+            job["current_doc_name"] = doc.filename
+            job["current_doc_index"] = idx + 1
+            job["current_step"] = (
+                f"Extracting and verifying facts from {doc.filename} "
+                f"(Document {idx + 1} of {len(doc_ids)})..."
+            )
+            job["elapsed_seconds"] = round(time.time() - t0, 1)
+
+            pages = target_pages_map.get(d_id) if target_pages_map else None
+            ef = await extractor.aextract_and_verify(doc, pages=pages)
+            extracted_facts_db[d_id] = ef
+            storage.save_extracted_facts(d_id, ef)
+            total_facts += len(ef.facts)
+            job["facts_extracted_so_far"] = total_facts
+            job["elapsed_seconds"] = round(time.time() - t0, 1)
+            job["stages_completed"].append(
+                f"Extracted and grounded {len(ef.facts)} facts from {doc.filename}"
+            )
+
+        job["current_step"] = (
+            f"Running ArbGraph claim alignment across {len(doc_ids)} document(s)..."
+        )
+        job["elapsed_seconds"] = round(time.time() - t0, 1)
+
+        doc_facts = {
+            d_id: extracted_facts_db[d_id].facts
+            for d_id in doc_ids
+            if d_id in extracted_facts_db
+        }
+        doc_filenames = {}
+        for d_id in doc_ids:
+            d = documents.get(d_id) or storage.get_document(d_id)
+            if d:
+                doc_filenames[d_id] = d.filename
+
+        graph = build_claim_graph(
+            doc_facts=doc_facts,
+            doc_filenames=doc_filenames,
+            nli_threshold=nli_threshold,
+        )
+        reconciliation_db["latest"] = graph
+        storage.save_claim_graph(graph, "latest")
+
+        job["stages_completed"].append(
+            f"Arbitrated {len(graph.clusters)} claim clusters into 4 assignment cases"
+        )
+        job["current_step"] = "Analysis complete. Cases ready."
+        job["status"] = "completed"
+        job["elapsed_seconds"] = round(time.time() - t0, 1)
+    except Exception as exc:
+        job["status"] = "failed"
+        job["error"] = str(exc)
+        job["elapsed_seconds"] = round(time.time() - t0, 1)
+
+
+@app.post("/pipeline/start")
+async def start_pipeline(req: PipelineStartRequest):
+    """Start asynchronous multi-document extraction and reconciliation pipeline."""
+    target_ids = req.doc_ids
+    if not target_ids:
+        target_ids = [d["doc_id"] for d in storage.list_documents()]
+
+    if not target_ids:
+        raise HTTPException(
+            400,
+            "No documents available for analysis. Please upload at least one PDF first.",
+        )
+
+    job_id = str(uuid.uuid4())[:8]
+    pipeline_jobs[job_id] = {
+        "job_id": job_id,
+        "status": "running",
+        "current_doc_name": "",
+        "current_doc_index": 0,
+        "total_docs": len(target_ids),
+        "current_step": f"Queued {len(target_ids)} document(s) for extraction...",
+        "facts_extracted_so_far": 0,
+        "elapsed_seconds": 0.0,
+        "stages_completed": [],
+        "error": None,
+    }
+
+    asyncio.create_task(
+        _run_pipeline_job(
+            job_id=job_id,
+            doc_ids=target_ids,
+            target_pages_map=req.target_pages,
+            nli_threshold=req.nli_threshold,
+        )
+    )
+
+    return {
+        "job_id": job_id,
+        "status": "running",
+        "total_docs": len(target_ids),
+    }
+
+
+@app.get("/pipeline/status/{job_id}")
+async def get_pipeline_status(job_id: str):
+    """Poll pipeline execution status and progress logs."""
+    job = pipeline_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Job '{job_id}' not found")
+    return job
+
+
+@app.post("/system/seed-demo")
+async def seed_demo_dataset():
+    """Seed storage with the starter India Macroeconomy dataset for instant demonstration."""
+    results_path = Path("e2e_india_macro_results.json")
+    if not results_path.exists():
+        raise HTTPException(404, "e2e_india_macro_results.json not found")
+
+    with open(results_path, "r", encoding="utf-8") as f:
+        graph_data = json.load(f)
+
+    graph = ClaimGraph.model_validate(graph_data)
+    storage.save_claim_graph(graph, "latest")
+    reconciliation_db["latest"] = graph
+
+    # Load facts cache
+    cache_path = Path("india_macro_facts_cache.json")
+    if cache_path.exists():
+        with open(cache_path, "r", encoding="utf-8") as f:
+            raw_cache = json.load(f)
+
+        doc_facts_map: dict[str, list[Fact]] = {}
+        for key, facts_list in raw_cache.items():
+            doc_id = key.split(":")[0]
+            if doc_id not in doc_facts_map:
+                doc_facts_map[doc_id] = []
+            for item in facts_list:
+                try:
+                    doc_facts_map[doc_id].append(Fact.model_validate(item))
+                except Exception:
+                    pass
+
+        for doc_id, facts in doc_facts_map.items():
+            ef = ExtractedFacts(
+                doc_id=doc_id,
+                facts=facts,
+                model_used="gemini-3.8-flash",
+                fallback_attempts=0,
+            )
+            storage.save_extracted_facts(doc_id, ef)
+            extracted_facts_db[doc_id] = ef
+
+    # Register the 3 documents in SQLite if not already present
+    from app.models import DocumentData
+    starter_dir = Path("starter-datasets/india-macroeconomy")
+    for doc_id, filename in graph.documents.items():
+        if not storage.get_document(doc_id):
+            pdf_path = starter_dir / filename
+            if pdf_path.exists():
+                try:
+                    import pymupdf
+                    doc_fitz = pymupdf.open(str(pdf_path))
+                    page_count = len(doc_fitz)
+                    doc_fitz.close()
+                    doc_data = DocumentData(
+                        doc_id=doc_id,
+                        filename=filename,
+                        page_count=page_count,
+                        pages=[],
+                    )
+                    storage.save_document(doc_data)
+                    documents[doc_id] = doc_data
+                except Exception as e:
+                    logger.warning("Could not register starter doc %s: %s", filename, e)
+
+    return {
+        "status": "seeded",
+        "documents": graph.documents,
+        "total_facts": graph.total_facts,
+        "clusters_count": len(graph.clusters),
+        "case_summary": graph.case_summary,
+    }
+
 
