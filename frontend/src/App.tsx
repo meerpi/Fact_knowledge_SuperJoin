@@ -60,6 +60,7 @@ export const App: React.FC = () => {
   // PDF Viewer Modal
   const [pdfModalDocId, setPdfModalDocId] = useState<string | null>(null);
   const [pdfModalPage, setPdfModalPage] = useState<number | null>(null);
+  const [pdfModalQuote, setPdfModalQuote] = useState<string | undefined>(undefined);
 
   // Load capabilities & existing documents on mount
   useEffect(() => {
@@ -238,9 +239,10 @@ export const App: React.FC = () => {
     setIsAnalyzing(false);
   };
 
-  const handleOpenPdfViewer = (docId: string, page: number) => {
+  const handleOpenPdfViewer = (docId: string, page: number, quote?: string) => {
     setPdfModalDocId(docId);
     setPdfModalPage(page);
+    setPdfModalQuote(quote);
   };
 
   return (
@@ -389,9 +391,11 @@ export const App: React.FC = () => {
       <PdfViewerModal
         docId={pdfModalDocId}
         pageNum={pdfModalPage}
+        highlightQuote={pdfModalQuote}
         onClose={() => {
           setPdfModalDocId(null);
           setPdfModalPage(null);
+          setPdfModalQuote(undefined);
         }}
       />
 

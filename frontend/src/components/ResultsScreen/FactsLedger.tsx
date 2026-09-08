@@ -8,7 +8,7 @@ import { formatMetricName, formatValue, formatCanonical } from '../../utils/form
 interface FactsLedgerProps {
   facts: Fact[];
   docFilenames?: Record<string, string>;
-  onViewPdf?: (docId: string, page: number) => void;
+  onViewPdf?: (docId: string, page: number, quote?: string) => void;
 }
 
 export const FactsLedger: React.FC<FactsLedgerProps> = ({

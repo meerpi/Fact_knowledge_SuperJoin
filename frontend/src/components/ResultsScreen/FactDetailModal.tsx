@@ -7,12 +7,14 @@ import { formatMetricName, formatValue, formatCanonical } from '../../utils/form
 
 interface FactDetailModalProps {
   fact: Fact | null;
+  docFilename?: string;
   onClose: () => void;
-  onViewPdf?: (docId: string, page: number) => void;
+  onViewPdf?: (docId: string, page: number, quote?: string) => void;
 }
 
 export const FactDetailModal: React.FC<FactDetailModalProps> = ({
   fact,
+  docFilename,
   onClose,
   onViewPdf,
 }) => {
@@ -23,14 +25,21 @@ export const FactDetailModal: React.FC<FactDetailModalProps> = ({
       <div className="w-full max-w-2xl bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 shadow-xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between bg-neutral-50 dark:bg-neutral-850">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-bold uppercase text-neutral-500">
-              Fact Evidence Detail
-            </span>
-            <span className="text-neutral-300 dark:text-neutral-700">•</span>
-            <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 font-mono">
-              {fact.subject} / {formatMetricName(fact.predicate)}
-            </span>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold uppercase text-neutral-500">
+                Fact Evidence Detail
+              </span>
+              <span className="text-neutral-300 dark:text-neutral-700">•</span>
+              <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 font-mono">
+                {fact.subject} / {formatMetricName(fact.predicate)}
+              </span>
+            </div>
+            {docFilename && (
+              <div className="text-[11px] font-mono text-neutral-400 mt-0.5 truncate max-w-md">
+                {docFilename} (p. {fact.provenance.page ?? '—'})
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -96,7 +105,11 @@ export const FactDetailModal: React.FC<FactDetailModalProps> = ({
               {onViewPdf && fact.provenance.page !== null && fact.provenance.page !== undefined && (
                 <button
                   onClick={() => {
-                    onViewPdf(fact.provenance.doc_id, fact.provenance.page!);
+                    onViewPdf(
+                      fact.provenance.doc_id,
+                      fact.provenance.page!,
+                      fact.provenance.evidence_quote
+                    );
                     onClose();
                   }}
                   className="inline-flex items-center gap-1 text-[11px] font-mono text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 underline decoration-dotted"

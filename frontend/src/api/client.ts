@@ -81,6 +81,9 @@ export const api = {
   // Evidence PDF & BBoxes
   getPdfUrl: (docId: string) => `${API_BASE}/documents/${docId}/file`,
 
+  getPageImageUrl: (docId: string, pageNum: number) =>
+    `${API_BASE}/documents/${docId}/page/${pageNum}/image`,
+
   getPageWordBBoxes: (docId: string, pageNum: number) =>
     request<PageWordBBoxesResponse>(`/documents/${docId}/page/${pageNum}/word-bboxes`),
 };

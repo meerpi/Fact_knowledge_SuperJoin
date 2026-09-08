@@ -549,8 +549,42 @@ async def get_document_file(doc_id: str):
     return FileResponse(
         str(filepath),
         media_type="application/pdf",
+        content_disposition_type="inline",
         filename=doc.filename,
     )
+
+
+@app.get("/documents/{doc_id}/page/{page_num}/image")
+async def get_page_image(doc_id: str, page_num: int, dpi: int = 150):
+    """Render a high-resolution PNG image of a PDF page for reliable in-browser exhibit display."""
+    doc = storage.get_document(doc_id) or documents.get(doc_id)
+    if not doc:
+        raise HTTPException(404, f"Document '{doc_id}' not found")
+    if page_num < 0 or page_num >= doc.page_count:
+        raise HTTPException(400, f"Page {page_num} out of range (0-{doc.page_count - 1})")
+    filepath = _find_document_file(doc.filename)
+    if not filepath or not filepath.exists():
+        raise HTTPException(404, f"PDF file '{doc.filename}' not found on disk")
+    try:
+        import pymupdf
+        from starlette.responses import Response
+        doc_fitz = pymupdf.open(str(filepath))
+        page = doc_fitz[page_num]
+        pix = page.get_pixmap(dpi=dpi)
+        img_bytes = pix.tobytes("png")
+        pw, ph = float(page.rect.width), float(page.rect.height)
+        doc_fitz.close()
+        return Response(
+            content=img_bytes,
+            media_type="image/png",
+            headers={
+                "X-Page-Width": str(pw),
+                "X-Page-Height": str(ph),
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Failed to render page image: {e}")
 
 
 @app.get("/documents/{doc_id}/page/{page_num}/word-bboxes")
@@ -565,8 +599,19 @@ async def get_page_word_bboxes(doc_id: str, page_num: int):
     if not filepath or not filepath.exists():
         raise HTTPException(404, f"PDF file '{doc.filename}' not found on disk")
     try:
+        import pymupdf
+        doc_fitz = pymupdf.open(str(filepath))
+        page = doc_fitz[page_num]
+        pw, ph = float(page.rect.width), float(page.rect.height)
+        doc_fitz.close()
         bboxes = get_word_bboxes(filepath, page_num)
-        return {"doc_id": doc_id, "page_num": page_num, "words": bboxes}
+        return {
+            "doc_id": doc_id,
+            "page_num": page_num,
+            "page_width": pw,
+            "page_height": ph,
+            "words": bboxes,
+        }
     except Exception as e:
         raise HTTPException(500, f"Failed to compute word bounding boxes: {e}")
 
