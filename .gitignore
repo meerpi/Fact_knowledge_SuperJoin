@@ -1,0 +1,28 @@
+# Environments & Virtual Environments
+.env
+.env.*
+!.env.example
+.venv/
+.venv_gpu/
+venv/
+ENV/
+
+# Python cache & build
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Runtime uploads & caches
+uploads/*
+!uploads/.gitkeep
+.voyage_cache.json
+*.log
+
+# Redundant archives
+starter-datasets.zip
+
+# OS artifacts
+.DS_Store
+Thumbs.db

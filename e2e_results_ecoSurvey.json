@@ -1,0 +1,514 @@
+{
+  "facts": [
+    {
+      "subject": "States",
+      "predicate": "revenue_expenditure_growth_yoy",
+      "value": "12 per cent",
+      "numeric_value": 12.0,
+      "unit": "%",
+      "base_unit": "%",
+      "scale": 0,
+      "dimension": "percentage",
+      "canonical_value": 12.0,
+      "canonical_unit": "%",
+      "context": {
+        "temporal": "April to November 2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "The revenue expenditure of the states grew at 12 per cent (YoY) during April to \nNovember 2024",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "States",
+      "predicate": "subsidies_growth_yoy",
+      "value": "25.7 per cent",
+      "numeric_value": 25.7,
+      "unit": "%",
+      "base_unit": "%",
+      "scale": 0,
+      "dimension": "percentage",
+      "canonical_value": 25.7,
+      "canonical_unit": "%",
+      "context": {
+        "temporal": "April to November 2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "subsidies and committed liabilities30 registering a \ngrowth of 25.7 per cent and 10.4 per cent, respectively",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "States",
+      "predicate": "committed_liabilities_growth_yoy",
+      "value": "10.4 per cent",
+      "numeric_value": 10.4,
+      "unit": "%",
+      "base_unit": "%",
+      "scale": 0,
+      "dimension": "percentage",
+      "canonical_value": 10.4,
+      "canonical_unit": "%",
+      "context": {
+        "temporal": "April to November 2024",
+        "scope": null,
+        "conditions": "Interest payments, salary and pension"
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "subsidies and committed liabilities30 registering a \ngrowth of 25.7 per cent and 10.4 per cent, respectively",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "States",
+      "predicate": "capital_account_expenditure_growth_yoy",
+      "value": "-5.6 per cent",
+      "numeric_value": -5.6,
+      "unit": "%",
+      "base_unit": "%",
+      "scale": 0,
+      "dimension": "percentage",
+      "canonical_value": -5.6,
+      "canonical_unit": "%",
+      "context": {
+        "temporal": "April to November 2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "With expenditure \non capital account for states declining by 5.6 per cent",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "States",
+      "predicate": "total_expenditure_growth_yoy",
+      "value": "9.5 per cent",
+      "numeric_value": 9.5,
+      "unit": "%",
+      "base_unit": "%",
+      "scale": 0,
+      "dimension": "percentage",
+      "canonical_value": 9.5,
+      "canonical_unit": "%",
+      "context": {
+        "temporal": "April to November 2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "total expenditure grew by 9.5 per \ncent",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "States",
+      "predicate": "states_with_capex_increase_count",
+      "value": "11",
+      "numeric_value": 11.0,
+      "unit": "states",
+      "base_unit": "states",
+      "scale": 0,
+      "dimension": "count",
+      "canonical_value": 11.0,
+      "canonical_unit": "states",
+      "context": {
+        "temporal": "April to November 2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "However, 11 states witnessed an increase in capex.",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "States",
+      "predicate": "other_expenditure_on_revenue_account_growth_yoy",
+      "value": "11.7",
+      "numeric_value": 11.7,
+      "unit": "%",
+      "base_unit": "%",
+      "scale": 0,
+      "dimension": "percentage",
+      "canonical_value": 11.7,
+      "canonical_unit": "%",
+      "context": {
+        "temporal": "April to November FY25 over April to November FY24",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "11.7\n0\n10\n20\n30\nCommitted\nexpenditure\nExpenditure on\nSubsidy\nOther\nexpenditure on\nRevenue\nAccount",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "All States",
+      "predicate": "capital_outlay_as_percentage_of_revenue_expenditure",
+      "value": "16.5",
+      "numeric_value": 16.5,
+      "unit": "%",
+      "base_unit": "%",
+      "scale": 0,
+      "dimension": "percentage",
+      "canonical_value": 16.5,
+      "canonical_unit": "%",
+      "context": {
+        "temporal": "FY20 to FY24",
+        "scope": null,
+        "conditions": "Revised estimates for FY24; 28 states"
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "16.5\n0\n5\n10\n15\n20\n25\n30\n35\n40\n45\nAR\nSK\nMN\nUP\nOD\nKA\nMP\nAS\nGJ\nML\nGA\nJH\nUK\nTS\nNL\nAll States",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "States",
+      "predicate": "number_of_states_analyzed",
+      "value": "28",
+      "numeric_value": 28.0,
+      "unit": "states",
+      "base_unit": "states",
+      "scale": 0,
+      "dimension": "count",
+      "canonical_value": 28.0,
+      "canonical_unit": "states",
+      "context": {
+        "temporal": "FY20 to FY24",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 26,
+        "evidence_quote": "31\t 28 states.",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "external_debt",
+      "value": "USD 711.8 billion",
+      "numeric_value": 711.8,
+      "unit": "USD billion",
+      "base_unit": "USD",
+      "scale": 9,
+      "dimension": "monetary",
+      "canonical_value": 711800000000.0,
+      "canonical_unit": "USD",
+      "context": {
+        "temporal": "September 2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 0.95,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "India\u2019s external debt of USD 711.8 billion as of September 2024",
+        "verified": true,
+        "match_type": "normalized"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "forex_reserves_global_rank",
+      "value": "4th",
+      "numeric_value": 4.0,
+      "unit": null,
+      "base_unit": null,
+      "scale": 0,
+      "dimension": "other",
+      "canonical_value": 4.0,
+      "canonical_unit": null,
+      "context": {
+        "temporal": "2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "ranking 4th globally, following China, Japan, and Switzerland.",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "forex_reserves_increase",
+      "value": "USD 27.1 billion",
+      "numeric_value": 27.1,
+      "unit": "USD billion",
+      "base_unit": "USD",
+      "scale": 9,
+      "dimension": "monetary",
+      "canonical_value": 27100000000.0,
+      "canonical_unit": "USD",
+      "context": {
+        "temporal": "2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 0.95,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "India\u2019s forex reserves witnessed a notable increase of USD 27.1 billion in 2024.",
+        "verified": true,
+        "match_type": "normalized"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "import_cover",
+      "value": "10.9 months",
+      "numeric_value": 10.9,
+      "unit": "months",
+      "base_unit": "months",
+      "scale": 0,
+      "dimension": "duration",
+      "canonical_value": 10.9,
+      "canonical_unit": "months",
+      "context": {
+        "temporal": "December 2024",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 0.95,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "The import cover, a crucial indicator of external sector stability, stood at 10.9 months as of December 2024.",
+        "verified": true,
+        "match_type": "normalized"
+      }
+    },
+    {
+      "subject": "IMF",
+      "predicate": "recommended_import_cover",
+      "value": "three-month",
+      "numeric_value": 3.0,
+      "unit": "months",
+      "base_unit": "months",
+      "scale": 0,
+      "dimension": "duration",
+      "canonical_value": 3.0,
+      "canonical_unit": "months",
+      "context": {
+        "temporal": null,
+        "scope": "emerging economies",
+        "conditions": null
+      },
+      "confidence": 0.1,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "IMF's recommended three-month import cover for emerging economies.",
+        "verified": false,
+        "match_type": "unverified"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "bop_surplus",
+      "value": "USD 63.7 billion",
+      "numeric_value": 63.7,
+      "unit": "USD billion",
+      "base_unit": "USD",
+      "scale": 9,
+      "dimension": "monetary",
+      "canonical_value": 63700000000.0,
+      "canonical_unit": "USD",
+      "context": {
+        "temporal": "FY24",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 0.95,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "The BoP surplus of USD 63.7 billion in FY24",
+        "verified": true,
+        "match_type": "normalized"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "valuation_gain",
+      "value": "USD 4.3 billion",
+      "numeric_value": 4.3,
+      "unit": "USD billion",
+      "base_unit": "USD",
+      "scale": 9,
+      "dimension": "monetary",
+      "canonical_value": 4300000000.0,
+      "canonical_unit": "USD",
+      "context": {
+        "temporal": "FY24",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "valuation gain of USD 4.3 billion",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "forex_reserves_increase",
+      "value": "USD 59.4 billion",
+      "numeric_value": 59.4,
+      "unit": "USD billion",
+      "base_unit": "USD",
+      "scale": 9,
+      "dimension": "monetary",
+      "canonical_value": 59400000000.0,
+      "canonical_unit": "USD",
+      "context": {
+        "temporal": "H1 of FY25",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "In H1 of FY25, forex reserves rose by USD 59.4 billion",
+        "verified": true,
+        "match_type": "exact"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "bop_surplus",
+      "value": "USD 23.9 billion",
+      "numeric_value": 23.9,
+      "unit": "USD billion",
+      "base_unit": "USD",
+      "scale": 9,
+      "dimension": "monetary",
+      "canonical_value": 23900000000.0,
+      "canonical_unit": "USD",
+      "context": {
+        "temporal": "H1 of FY25",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 0.95,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "driven by a BoP surplus of USD 23.9 billion",
+        "verified": true,
+        "match_type": "normalized"
+      }
+    },
+    {
+      "subject": "India",
+      "predicate": "valuation_gain",
+      "value": "USD 35.5 billion",
+      "numeric_value": 35.5,
+      "unit": "USD billion",
+      "base_unit": "USD",
+      "scale": 9,
+      "dimension": "monetary",
+      "canonical_value": 35500000000.0,
+      "canonical_unit": "USD",
+      "context": {
+        "temporal": "H1 of FY25",
+        "scope": null,
+        "conditions": null
+      },
+      "confidence": 1.0,
+      "provenance": {
+        "doc_id": "30c1078a0718",
+        "page": 70,
+        "evidence_quote": "a valuation gain of USD 35.5 billion.",
+        "verified": true,
+        "match_type": "exact"
+      }
+    }
+  ],
+  "report": {
+    "doc_id": "30c1078a0718",
+    "cross_doc_id": null,
+    "total_facts": 19,
+    "candidate_pairs_evaluated": 3,
+    "edges": [
+      {
+        "source_fact_idx": 14,
+        "target_fact_idx": 17,
+        "edge_type": "supersedes",
+        "detection_method": "temporal",
+        "confidence": 1.0,
+        "explanation": "Different periods (FY24 vs H1 of FY25): USD 63.7 billion vs USD 23.9 billion \u2014 temporal progression, not contradiction"
+      },
+      {
+        "source_fact_idx": 11,
+        "target_fact_idx": 16,
+        "edge_type": "supersedes",
+        "detection_method": "temporal",
+        "confidence": 1.0,
+        "explanation": "Different periods (2024 vs H1 of FY25): USD 27.1 billion vs USD 59.4 billion \u2014 temporal progression, not contradiction"
+      },
+      {
+        "source_fact_idx": 15,
+        "target_fact_idx": 18,
+        "edge_type": "supersedes",
+        "detection_method": "temporal",
+        "confidence": 1.0,
+        "explanation": "Different periods (FY24 vs H1 of FY25): USD 4.3 billion vs USD 35.5 billion \u2014 temporal progression, not contradiction"
+      }
+    ],
+    "summary": {
+      "supersedes": 3
+    }
+  }
+}

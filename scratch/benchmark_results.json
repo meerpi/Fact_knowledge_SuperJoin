@@ -1,0 +1,992 @@
+{
+  "device": "NVIDIA GeForce RTX 3060 Laptop GPU",
+  "cuda_available": true,
+  "test_cases": {
+    "Q4 FY24 Earnings Presentation - Financial Summary & KPIs": {
+      "file": "starter-datasets/delhivery/03-delhivery-q4-fy24-earnings-presentation.pdf",
+      "pages": [
+        3,
+        9,
+        13
+      ],
+      "descriptions": {
+        "3": "Slide banner & multi-column financial cards",
+        "9": "Grid of KPI metric cards (volume, network reach)",
+        "13": "Adjusted EBITDA reconciliation table with margin footnotes"
+      },
+      "pdfplumber": {
+        "3": {
+          "duration_sec": 0.0217,
+          "text_length": 25,
+          "text_snippet": "FY24: EBITDA profitable 3",
+          "table_count": 1,
+          "fragment_table_count": 1,
+          "tables": [
+            {
+              "table_id": 0,
+              "rows": 1,
+              "cols": 2,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "",
+                "FY24: EBITDA\nprofitable\n3"
+              ],
+              "row_sample": []
+            }
+          ]
+        },
+        "9": {
+          "duration_sec": 0.0541,
+          "text_length": 708,
+          "text_snippet": "FY24 performance Revenue from services(1,2) TL revenue Supply Chain Services revenue (\u20b9 Cr) (\u20b9 Cr) (\u20b9 Cr) YoY: 13% YoY: (1%) 8,142 YoY: 40% 782 776 7,224 10% 609 7,054 551 7% 436 8% 11% 4% 287 6% 19% 16% 24% FY22 FY23 FY24 FY22 FY23 FY24 Cross Border Services revenue (3) (\u20b9 Cr) 62% 63% 59% YoY: (48%",
+          "table_count": 9,
+          "fragment_table_count": 4,
+          "tables": [
+            {
+              "table_id": 0,
+              "rows": 5,
+              "cols": 6,
+              "null_cell_ratio": 0.767,
+              "is_likely_fragment": false,
+              "header_sample": [
+                null,
+                null,
+                "ices re\nY",
+                null,
+                null,
+                "e\n%)"
+              ],
+              "row_sample": [
+                "",
+                null,
+                null,
+                "Y",
+                "oY: (1",
+                null
+              ]
+            },
+            {
+              "table_id": 1,
+              "rows": 5,
+              "cols": 4,
+              "null_cell_ratio": 0.9,
+              "is_likely_fragment": false,
+              "header_sample": [
+                null,
+                null,
+                null,
+                ""
+              ],
+              "row_sample": [
+                null,
+                "YoY: 40",
+                null,
+                "%\n609"
+              ]
+            },
+            {
+              "table_id": 2,
+              "rows": 5,
+              "cols": 1,
+              "null_cell_ratio": 0.2,
+              "is_likely_fragment": false,
+              "header_sample": [
+                ""
+              ],
+              "row_sample": [
+                "10%"
+              ]
+            },
+            {
+              "table_id": 3,
+              "rows": 5,
+              "cols": 1,
+              "null_cell_ratio": 0.2,
+              "is_likely_fragment": false,
+              "header_sample": [
+                ""
+              ],
+              "row_sample": [
+                "11%"
+              ]
+            },
+            {
+              "table_id": 4,
+              "rows": 5,
+              "cols": 1,
+              "null_cell_ratio": 0.2,
+              "is_likely_fragment": false,
+              "header_sample": [
+                ""
+              ],
+              "row_sample": [
+                "8%"
+              ]
+            },
+            {
+              "table_id": 5,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "287"
+              ],
+              "row_sample": [
+                ""
+              ]
+            },
+            {
+              "table_id": 6,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "YoY: (48%)"
+              ],
+              "row_sample": [
+                ""
+              ]
+            },
+            {
+              "table_id": 7,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "318"
+              ],
+              "row_sample": [
+                ""
+              ]
+            },
+            {
+              "table_id": 8,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "153"
+              ],
+              "row_sample": [
+                ""
+              ]
+            }
+          ]
+        },
+        "13": {
+          "duration_sec": 0.0532,
+          "text_length": 899,
+          "text_snippet": "Adjusted EBITDA \u20b9 Cr Q1 FY23 Q2 FY23 Q3 FY23 Q4 FY23 Q1 FY24 Q2 FY24 Q3 FY24 Q4 FY24 FY23 FY24 Revenue from customers(1) 1,746 1,796 1,824 1,860 1,930 1,942 2,194 2,076 7,225 8,142 Service EBITDA refers to EBITDA generated after accounting for direct variable and Service EBITDA (6) 86 139 205 196 20",
+          "table_count": 1,
+          "fragment_table_count": 0,
+          "tables": [
+            {
+              "table_id": 0,
+              "rows": 8,
+              "cols": 12,
+              "null_cell_ratio": 0.083,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "\u20b9 Cr",
+                "Q1 FY23",
+                "Q2 FY23",
+                "Q3 FY23",
+                "Q4 FY23",
+                "Q1 FY24",
+                "Q2 FY24",
+                "Q3 FY24",
+                "Q4 FY24",
+                "",
+                "FY23",
+                "FY24"
+              ],
+              "row_sample": [
+                "Revenue from customers(1)",
+                "1,746",
+                "1,796",
+                "1,824",
+                "1,860",
+                "1,930",
+                "1,942",
+                "2,194",
+                "2,076",
+                "",
+                "7,225",
+                "8,142"
+              ]
+            }
+          ]
+        }
+      },
+      "docling": {
+        "3": {
+          "duration_sec": 300.8905,
+          "text_length": 25,
+          "text_snippet": "FY24: EBITDA profitable 3",
+          "markdown_snippet": "<!-- image -->  FY24: EBITDA profitable  <!-- image -->",
+          "table_count": 0,
+          "fragment_table_count": 0,
+          "tables": []
+        },
+        "9": {
+          "duration_sec": 0.444,
+          "text_length": 619,
+          "text_snippet": "FY24 performance (1) Revenue from services excludes revenue from traded goods (2) FY22 numbers are on pro forma basis (3) Revenue from Cross Border Services in FY22 included freight revenue of Rs 46 Cr from the shipment of Covid related traded goods. 59% 63% 62% 24% 16% 19% 4% 6% 7% 8% 11% 10% 7,054",
+          "markdown_snippet": "## FY24 performance  <!-- image -->  <!-- image -->  (\u20b9 Cr) Supply Chain Services revenue  <!-- image -->  Cross Border Services revenue (3) (\u20b9 Cr)  <!-- image -->",
+          "table_count": 0,
+          "fragment_table_count": 0,
+          "tables": []
+        },
+        "13": {
+          "duration_sec": 0.8855,
+          "text_length": 298,
+          "text_snippet": "Adjusted EBITDA Service EBITDA refers to EBITDA generated after accounting for direct variable and fixed costs of operations, excluding corporate overheads Note: Due to rounding off, totals may not correspond with the sum of individual figures (1) Includes revenue from services and traded goods 13",
+          "markdown_snippet": "## Adjusted EBITDA  Service EBITDA refers to EBITDA generated after accounting for direct variable and fixed costs of operations, excluding corporate overheads  | \u20b9 Cr                           | Q1 FY23   | Q2 FY23   | Q3 FY23   | Q4 FY23   | Q1 FY24   | Q2 FY24   | Q3 FY24   | Q4 FY24   | FY23   | FY24   | |--------------------------------|-----------|-----------|-----------|-----------|--------",
+          "table_count": 1,
+          "fragment_table_count": 0,
+          "tables": [
+            {
+              "rows": 6,
+              "cols": 11,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "headers": [
+                "\u20b9 Cr.Revenue from customers (1)",
+                "Q1 FY23.1,746",
+                "Q2 FY23.1,796",
+                "Q3 FY23.1,824",
+                "Q4 FY23.1,860",
+                "Q1 FY24.1,930",
+                "Q2 FY24.1,942",
+                "Q3 FY24.2,194",
+                "Q4 FY24.2,076",
+                "FY23.7,225",
+                "FY24.8,142"
+              ],
+              "first_row": {
+                "\u20b9 Cr.Revenue from customers (1)": "Service EBITDA",
+                "Q1 FY23.1,746": "(6)",
+                "Q2 FY23.1,796": "86",
+                "Q3 FY23.1,824": "139",
+                "Q4 FY23.1,860": "205",
+                "Q1 FY24.1,930": "196",
+                "Q2 FY24.1,942": "201",
+                "Q3 FY24.2,194": "306",
+                "Q4 FY24.2,076": "238",
+                "FY23.7,225": "422",
+                "FY24.8,142": "941"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Prospectus 2022 - Restated Financial Information": {
+      "file": "starter-datasets/delhivery/01-delhivery-prospectus-2022-excerpt.pdf",
+      "pages": [
+        10,
+        11
+      ],
+      "descriptions": {
+        "10": "IPO Shareholder table with merged headers & multiple columns",
+        "11": "Restated Consolidated Balance Sheet (multi-period financial columns)"
+      },
+      "pdfplumber": {
+        "10": {
+          "duration_sec": 0.2601,
+          "text_length": 2771,
+          "text_snippet": "Weighted average cost of acquisition of shares transacted in the last three years and one year preceding the date of this Prospectus* Period Weighted Average Cost Cap Price is \u2018X\u2019 times the Range of acquisition price: of Acquisition (in \u20b9) Weighted Average Cost of Lowest Price - Highest Price (in \u20b9)",
+          "table_count": 11,
+          "fragment_table_count": 6,
+          "tables": [
+            {
+              "table_id": 0,
+              "rows": 3,
+              "cols": 4,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "Period",
+                "Weighted Average Cost\nof Acquisition (in \u20b9)",
+                "Cap Price is \u2018X\u2019 times the",
+                "Range of acquisition price:\nLowest Price - Highest Price (in \u20b9)"
+              ],
+              "row_sample": [
+                null,
+                null,
+                "Weighted Average Cost of",
+                null
+              ]
+            },
+            {
+              "table_id": 1,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Weighted Average Cost"
+              ],
+              "row_sample": [
+                "of Acquisition (in \u20b9)"
+              ]
+            },
+            {
+              "table_id": 2,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Range of acquisition price:"
+              ],
+              "row_sample": [
+                "Lowest Price - Highest Price (in \u20b9)"
+              ]
+            },
+            {
+              "table_id": 3,
+              "rows": 4,
+              "cols": 6,
+              "null_cell_ratio": 0.75,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "Selling Shareholder",
+                null,
+                "Number of Equity Shares acquired",
+                "",
+                "Average cost of acquisition per Equity",
+                ""
+              ],
+              "row_sample": [
+                null,
+                null,
+                null,
+                null,
+                "Share",
+                null
+              ]
+            },
+            {
+              "table_id": 4,
+              "rows": 1,
+              "cols": 3,
+              "null_cell_ratio": 0.667,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "",
+                "Individual Selling Shareholders",
+                ""
+              ],
+              "row_sample": []
+            },
+            {
+              "table_id": 5,
+              "rows": 25,
+              "cols": 13,
+              "null_cell_ratio": 0.785,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "S. No.",
+                null,
+                "Name of the\nacquirer/shareholder",
+                null,
+                null,
+                "Date of acquisition\nof equity shares",
+                "Number of\nequity shares\nacquired",
+                "",
+                "Acquisition",
+                "",
+                "Mode of acquisition",
+                null,
+                null
+              ],
+              "row_sample": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "price per",
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "table_id": 6,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Name of the"
+              ],
+              "row_sample": [
+                "acquirer/shareholder"
+              ]
+            },
+            {
+              "table_id": 7,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Date of acquisition"
+              ],
+              "row_sample": [
+                "of equity shares"
+              ]
+            },
+            {
+              "table_id": 8,
+              "rows": 3,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "Number of"
+              ],
+              "row_sample": [
+                "equity shares"
+              ]
+            },
+            {
+              "table_id": 9,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Mode of acquisition"
+              ],
+              "row_sample": [
+                ""
+              ]
+            },
+            {
+              "table_id": 10,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "SVF Doorbell"
+              ],
+              "row_sample": [
+                "(Cayman) Ltd"
+              ]
+            }
+          ]
+        },
+        "11": {
+          "duration_sec": 0.4991,
+          "text_length": 2555,
+          "text_snippet": "S. No. Name of the Date of acquisition Number of Acquisition Mode of acquisition acquirer/shareholder of equity shares equity shares price per acquired equity share (in \u20b9) August 8, 2020 785,260 78.00 Conversion of Series B Preference Shares August 8, 2020 12,760 226.42 Conversion of Series C Prefer",
+          "table_count": 10,
+          "fragment_table_count": 7,
+          "tables": [
+            {
+              "table_id": 0,
+              "rows": 56,
+              "cols": 15,
+              "null_cell_ratio": 0.808,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "S. No.",
+                null,
+                "Name of the\nacquirer/shareholder",
+                null,
+                null,
+                "Date of acquisition\nof equity shares",
+                null,
+                "Number of\nequity shares\nacquired",
+                null,
+                "",
+                "Acquisition",
+                "",
+                "Mode of acquisition",
+                null,
+                null
+              ],
+              "row_sample": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "price per",
+                null,
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "table_id": 1,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Name of the"
+              ],
+              "row_sample": [
+                "acquirer/shareholder"
+              ]
+            },
+            {
+              "table_id": 2,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Mode of acquisition"
+              ],
+              "row_sample": [
+                ""
+              ]
+            },
+            {
+              "table_id": 3,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Canada Pension Plan"
+              ],
+              "row_sample": [
+                "Investment Board"
+              ]
+            },
+            {
+              "table_id": 4,
+              "rows": 3,
+              "cols": 1,
+              "null_cell_ratio": 0.333,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "Nexus Ventures III"
+              ],
+              "row_sample": [
+                "Limited"
+              ]
+            },
+            {
+              "table_id": 5,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Nexus Opportunity"
+              ],
+              "row_sample": [
+                "Fund Ltd"
+              ]
+            },
+            {
+              "table_id": 6,
+              "rows": 5,
+              "cols": 11,
+              "null_cell_ratio": 0.818,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "S.\nNo.",
+                null,
+                "Name of the\nacquirer/shareholder",
+                "",
+                "Date of\nacquisition of\npreference\nshares",
+                "Number of\npreference\nshares acquired",
+                "",
+                "Acquisition",
+                "",
+                "Mode of acquisition",
+                null
+              ],
+              "row_sample": [
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "price per",
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "table_id": 7,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "S."
+              ],
+              "row_sample": [
+                "No."
+              ]
+            },
+            {
+              "table_id": 8,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Name of the"
+              ],
+              "row_sample": [
+                "acquirer/shareholder"
+              ]
+            },
+            {
+              "table_id": 9,
+              "rows": 2,
+              "cols": 1,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": true,
+              "header_sample": [
+                "Mode of acquisition"
+              ],
+              "row_sample": [
+                ""
+              ]
+            }
+          ]
+        }
+      },
+      "docling": {
+        "10": {
+          "duration_sec": 0.6976,
+          "text_length": 1066,
+          "text_snippet": "Weighted average cost of acquisition of shares transacted in the last three years and one year preceding the date of this Prospectus* * As certified by B.B. & Associates, Chartered Accountants, by way of their certificate dated April 30, 2022, read with their certificate dated May 14, 2022. # To be ",
+          "markdown_snippet": "## Weighted average cost of acquisition of shares transacted in the last three years and one year preceding the date of this Prospectus*  | Period           |   Weighted Average Cost of Acquisition (in \u20b9 ) |   Cap Price is 'X' times the Weighted Average Cost of Acquisition # | Range of acquisition price: Lowest Price - Highest Price (in \u20b9 )   | |------------------|---------------------------------",
+          "table_count": 3,
+          "fragment_table_count": 0,
+          "tables": [
+            {
+              "rows": 2,
+              "cols": 4,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "headers": [
+                "Period",
+                "Weighted Average Cost of Acquisition (in \u20b9 )",
+                "Cap Price is 'X' times the Weighted Average Cost of Acquisition #",
+                "Range of acquisition price: Lowest Price - Highest Price (in \u20b9 )"
+              ],
+              "first_row": {
+                "Period": "Last one year",
+                "Weighted Average Cost of Acquisition (in \u20b9 )": "148.38",
+                "Cap Price is 'X' times the Weighted Average Cost of Acquisition #": "3.28",
+                "Range of acquisition price: Lowest Price - Highest Price (in \u20b9 )": "Nil** - 400.00"
+              }
+            },
+            {
+              "rows": 9,
+              "cols": 3,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "headers": [
+                "Selling Shareholder",
+                "Number of Equity Shares acquired",
+                "Average cost of acquisition per Equity Share (in \u20b9) *"
+              ],
+              "first_row": {
+                "Selling Shareholder": "Investor Selling Shareholders",
+                "Number of Equity Shares acquired": "",
+                "Average cost of acquisition per Equity Share (in \u20b9) *": ""
+              }
+            },
+            {
+              "rows": 11,
+              "cols": 6,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "headers": [
+                "S. No.",
+                "Name of the acquirer/shareholder",
+                "Date of acquisition of equity shares",
+                "Number of equity shares acquired",
+                "Acquisition price per equity share (in \u20b9 )",
+                "Mode of acquisition"
+              ],
+              "first_row": {
+                "S. No.": "Selling Shareholders",
+                "Name of the acquirer/shareholder": "Selling Shareholders",
+                "Date of acquisition of equity shares": "Selling Shareholders",
+                "Number of equity shares acquired": "Selling Shareholders",
+                "Acquisition price per equity share (in \u20b9 )": "Selling Shareholders",
+                "Mode of acquisition": "Selling Shareholders"
+              }
+            }
+          ]
+        },
+        "11": {
+          "duration_sec": 0.7141,
+          "text_length": 162,
+          "text_snippet": "*Bonus shares are issued without consideration. Accordingly, mentioned as N.A. Cost of acquisition of Preference Shares of the Company in the last three years: 31",
+          "markdown_snippet": "| S. No.                                          | Name of the acquirer/shareholder                                               | Date of acquisition of equity shares            | Number of equity shares acquired                | Acquisition price per equity share (in \u20b9 )      | Mode of acquisition                              | |-------------------------------------------------|---------------",
+          "table_count": 2,
+          "fragment_table_count": 0,
+          "tables": [
+            {
+              "rows": 27,
+              "cols": 6,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "headers": [
+                "S. No.",
+                "Name of the acquirer/shareholder",
+                "Date of acquisition of equity shares",
+                "Number of equity shares acquired",
+                "Acquisition price per equity share (in \u20b9 )",
+                "Mode of acquisition"
+              ],
+              "first_row": {
+                "S. No.": "",
+                "Name of the acquirer/shareholder": "",
+                "Date of acquisition of equity shares": "August 8, 2020",
+                "Number of equity shares acquired": "785,260",
+                "Acquisition price per equity share (in \u20b9 )": "78.00",
+                "Mode of acquisition": "Conversion of Series B Preference Shares"
+              }
+            },
+            {
+              "rows": 3,
+              "cols": 6,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "headers": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5"
+              ],
+              "first_row": {
+                "0": "S.",
+                "1": "Name of the acquirer/shareholder",
+                "2": "Date of acquisition of",
+                "3": "Number of preference",
+                "4": "per Mode",
+                "5": "of acquisition"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Annual Report FY24 - Multi-column Layout & Highlights": {
+      "file": "starter-datasets/delhivery/02-delhivery-annual-report-fy24-excerpt.pdf",
+      "pages": [
+        0,
+        2
+      ],
+      "descriptions": {
+        "0": "Page header with navigation tab strip",
+        "2": "Multi-column statutory narrative and operational overview"
+      },
+      "pdfplumber": {
+        "0": {
+          "duration_sec": 0.1825,
+          "text_length": 1781,
+          "text_snippet": "Corporate Overview Statutory Reports Financial Statements What\u2019s inside Statutory reports Corporate overview Our vision is \u2018Building the Operating System for Delhivery has democratised Directors' Report 42 Commerce in India.\u2019 access to high-speed, cost- Introduction 1 Management Discussion efficient",
+          "table_count": 1,
+          "fragment_table_count": 0,
+          "tables": [
+            {
+              "table_id": 0,
+              "rows": 1,
+              "cols": 3,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "Corporate Overview",
+                "Statutory Reports",
+                "Financial Statements"
+              ],
+              "row_sample": []
+            }
+          ]
+        },
+        "2": {
+          "duration_sec": 0.0448,
+          "text_length": 1317,
+          "text_snippet": "Corporate Overview Statutory Reports Financial Statements Our services Express parcel Supply chain services (SCS) \u2022 E-commerce shipping solutions across \u2022 Industry-specific integrated express and surface modes warehousing and transportation: Automotive, Electronics, Fashion, \u2022 Consumer-to-consumer s",
+          "table_count": 7,
+          "fragment_table_count": 0,
+          "tables": [
+            {
+              "table_id": 0,
+              "rows": 2,
+              "cols": 3,
+              "null_cell_ratio": 0.5,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "",
+                "",
+                ""
+              ],
+              "row_sample": [
+                "Corporate Overview",
+                "Statutory Reports",
+                "Financial Statements"
+              ]
+            },
+            {
+              "table_id": 1,
+              "rows": 1,
+              "cols": 3,
+              "null_cell_ratio": 0.667,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "",
+                "",
+                "Express parcel\n\u2022 E-commerce shipping solutions across\nexpress and surface modes\n\u2022 Consumer-to-consumer shipping\n\u2022 Shipping small parcel, heavy goods as\nwell as BFSI documentation\n\u2022 Same-day delivery (SDD)/Next-day\ndelivery (NDD) solutions\n\u2022 Reverse logistics, including QC as a\nvalue-added service"
+              ],
+              "row_sample": []
+            },
+            {
+              "table_id": 2,
+              "rows": 1,
+              "cols": 3,
+              "null_cell_ratio": 0.667,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "",
+                "",
+                "Supply chain services (SCS)\n\u2022 Industry-specific integrated\nwarehousing and transportation:\nAutomotive, Electronics, Fashion,\nChemicals, Industrials, and Food and\nBeverages\n\u2022 E-commerce and heavy goods\nfulfilment\n\u2022 Direct-to-consumer (D2C) fulfilment\nsolutions"
+              ],
+              "row_sample": []
+            },
+            {
+              "table_id": 3,
+              "rows": 1,
+              "cols": 3,
+              "null_cell_ratio": 0.667,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "Part-truckload (PTL)\n\u2022 Express PTL\n\u2022 Freight on delivery/Freight on pick-\nup payment solutions\n\u2022 Reverse logistics\n\u2022 Appointment based deliveries",
+                "",
+                ""
+              ],
+              "row_sample": []
+            },
+            {
+              "table_id": 4,
+              "rows": 1,
+              "cols": 3,
+              "null_cell_ratio": 0.667,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "Cross-border services\n\u2022 International express parcel shipping\n(in partnership with FedEx and\nAramex)\n\u2022 Door-to-door air and ocean freight\nshipping services\n\u2022 Less-than-container load (LCL)\n\u2022 Full Container Load (FCL)",
+                "",
+                ""
+              ],
+              "row_sample": []
+            },
+            {
+              "table_id": 5,
+              "rows": 1,
+              "cols": 3,
+              "null_cell_ratio": 0.667,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "",
+                "",
+                "Truckload freight (TL)\n\u2022 Contract TL solutions\n\u2022 Spot freight exchange\n\u2022 National, regional and intra-city\nfreight"
+              ],
+              "row_sample": []
+            },
+            {
+              "table_id": 6,
+              "rows": 1,
+              "cols": 3,
+              "null_cell_ratio": 0.667,
+              "is_likely_fragment": false,
+              "header_sample": [
+                "",
+                "",
+                "SaaS (OS1)\n\u2022 DispatchOne: Last-mile dispatch\nmanagement software\n\u2022 TransportOne: Transport management\nsoftware\n\u2022 LocateOne: Proprietary location\nintelligence software"
+              ],
+              "row_sample": []
+            }
+          ]
+        }
+      },
+      "docling": {
+        "0": {
+          "duration_sec": 0.4981,
+          "text_length": 1232,
+          "text_snippet": "Statutory Reports Financial Statements What's inside Corporate overview For more details, please visit https://www.delhivery.com/company/investor-relations Corporate Overview Our vision is 'Building the Operating System for Commerce in India.' B Delhivery Limited Millions of business owners in India",
+          "markdown_snippet": "## What's inside  ## Corporate overview  | Introduction \b                       | 1     | |--------------------------------------|-------| | Delhivery In Numbers\b                | 2-3   | | Our Sevices                          | 4-5   | | Performance review                   |       | | Highlights \b                         | 6-9   | | Financial Performance \b              | 10-11 | | Letter to Shar",
+          "table_count": 2,
+          "fragment_table_count": 0,
+          "tables": [
+            {
+              "rows": 13,
+              "cols": 2,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "headers": [
+                "0",
+                "1"
+              ],
+              "first_row": {
+                "0": "Introduction \b",
+                "1": "1"
+              }
+            },
+            {
+              "rows": 7,
+              "cols": 2,
+              "null_cell_ratio": 0.0,
+              "is_likely_fragment": false,
+              "headers": [
+                "0",
+                "1"
+              ],
+              "first_row": {
+                "0": "Statutory reports Directors' Report \b",
+                "1": "42"
+              }
+            }
+          ]
+        },
+        "2": {
+          "duration_sec": 0.1579,
+          "text_length": 1271,
+          "text_snippet": "Corporate Overview Statutory Reports Financial Statements Our services Express parcel E-commerce shipping solutions across express and surface modes Consumer-to-consumer shipping Shipping small parcel, heavy goods as well as BFSI documentation Same-day delivery (SDD)/Next-day delivery (NDD) solution",
+          "markdown_snippet": "## Our services  <!-- image -->  ## Express parcel  - E-commerce shipping solutions across express and surface modes - Consumer-to-consumer shipping - Shipping small parcel, heavy goods as well as BFSI documentation - Same-day delivery (SDD)/Next-day delivery (NDD) solutions - Reverse logistics, including QC as a value-added service  ## Part-truckload (PTL)  - Express PTL - Freight on delivery/Fre",
+          "table_count": 0,
+          "fragment_table_count": 0,
+          "tables": []
+        }
+      }
+    }
+  }
+}
