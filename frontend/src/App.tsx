@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  FileText,
   Layers,
   Network,
   RotateCcw,
@@ -21,12 +20,11 @@ import { UploadDropzone } from './components/UploadScreen/UploadDropzone';
 import { DocumentList } from './components/UploadScreen/DocumentList';
 import { ExtractionProgress } from './components/UploadScreen/ExtractionProgress';
 import { DemoDatasetBanner } from './components/UploadScreen/DemoDatasetBanner';
-import { CasesView } from './components/ResultsScreen/CasesView';
 import { FactsLedger } from './components/ResultsScreen/FactsLedger';
 import { RelationshipsGraph } from './components/ResultsScreen/RelationshipsGraph';
 import { PdfViewerModal } from './components/ResultsScreen/PdfViewerModal';
 
-type ActiveTab = 'cases' | 'facts' | 'relationships';
+type ActiveTab = 'facts' | 'relationships';
 
 export const App: React.FC = () => {
   // Navigation & Screen state
@@ -34,7 +32,8 @@ export const App: React.FC = () => {
     return (localStorage.getItem('fkl_screen') as 'upload' | 'results') || 'upload';
   });
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
-    return (localStorage.getItem('fkl_tab') as ActiveTab) || 'cases';
+    const saved = localStorage.getItem('fkl_tab') as any;
+    return saved === 'relationships' || saved === 'facts' ? saved : 'facts';
   });
 
   // System capabilities
@@ -162,7 +161,7 @@ export const App: React.FC = () => {
       }
       await loadAllFacts();
       setCurrentScreen('results');
-      setActiveTab('cases');
+      setActiveTab('facts');
     } catch (err) {
       console.error('Seed demo error', err);
     } finally {
@@ -201,7 +200,7 @@ export const App: React.FC = () => {
           localStorage.removeItem('fkl_job_id');
           setActiveJobId(null);
 
-          // Fetch final results & transition directly to Cases tab
+          // Fetch final results & transition directly to Facts tab
           const [casesData, graphData] = await Promise.all([
             api.getReconciliationCases(),
             api.reconcile(),
@@ -210,7 +209,7 @@ export const App: React.FC = () => {
           setClaimGraph(graphData);
           await loadAllFacts();
           setCurrentScreen('results');
-          setActiveTab('cases');
+          setActiveTab('facts');
         } else if (job.status === 'failed') {
           clearInterval(interval);
           setIsAnalyzing(false);
@@ -233,7 +232,7 @@ export const App: React.FC = () => {
     localStorage.removeItem('fkl_tab');
     localStorage.removeItem('fkl_job_id');
     setCurrentScreen('upload');
-    setActiveTab('cases');
+    setActiveTab('facts');
     setPipelineStatus(null);
     setActiveJobId(null);
     setIsAnalyzing(false);
@@ -302,21 +301,6 @@ export const App: React.FC = () => {
         <div className="border-b border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-4 sm:px-6">
           <div className="max-w-6xl mx-auto flex items-center gap-6 text-xs font-mono">
             <button
-              onClick={() => setActiveTab('cases')}
-              className={`py-3 font-semibold flex items-center gap-1.5 border-b-2 transition-colors ${
-                activeTab === 'cases'
-                  ? 'border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100'
-                  : 'border-transparent text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Cases</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-mono">
-                Primary
-              </span>
-            </button>
-
-            <button
               onClick={() => setActiveTab('facts')}
               className={`py-3 font-semibold flex items-center gap-1.5 border-b-2 transition-colors ${
                 activeTab === 'facts'
@@ -343,6 +327,11 @@ export const App: React.FC = () => {
             >
               <Network className="w-3.5 h-3.5" />
               <span>Relationships Graph</span>
+              {claimGraph?.clusters && claimGraph.clusters.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-mono">
+                  {claimGraph.clusters.length}
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -381,10 +370,6 @@ export const App: React.FC = () => {
         ) : (
           /* Screen 2: Results Exhibit */
           <div className="space-y-6">
-            {activeTab === 'cases' && (
-              <CasesView cases={cases} onViewPdf={handleOpenPdfViewer} />
-            )}
-
             {activeTab === 'facts' && (
               <FactsLedger
                 facts={allFacts}
@@ -394,15 +379,7 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'relationships' && (
-              <RelationshipsGraph
-                clusters={
-                  claimGraph?.clusters || [
-                    ...(cases?.case_1_corroborated ? [cases.case_1_corroborated as any] : []),
-                    ...(cases?.case_2_contradicted ? [cases.case_2_contradicted as any] : []),
-                    ...(cases?.case_3_reconciled ? [cases.case_3_reconciled as any] : []),
-                  ]
-                }
-              />
+              <RelationshipsGraph clusters={claimGraph?.clusters || []} />
             )}
           </div>
         )}
