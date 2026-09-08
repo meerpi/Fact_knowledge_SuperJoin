@@ -24,6 +24,9 @@ class Dimension(str, Enum):
     OTHER = "other"            # Anything not covered above
 
 
+KNOWN_DIMENSIONS: frozenset[str] = frozenset({d.value for d in Dimension})
+
+
 class BoundingBox(BaseModel):
     x0: float
     y0: float
@@ -62,6 +65,8 @@ class DocumentData(BaseModel):
     page_count: int
     pages: list[PageData] = Field(default_factory=list)
     raw_text_index: dict[int, str] = Field(default_factory=dict)
+    scanned_pages: list[int] = Field(default_factory=list, description="Pages identified as image-only scans (<20 characters text)")
+    warnings: list[str] = Field(default_factory=list, description="Parser warnings (e.g. partially scanned pages)")
 
 
 class Context(BaseModel):
@@ -89,7 +94,7 @@ class Fact(BaseModel):
     unit: str | None = Field(default=None, description="Legacy combined unit string (e.g. 'INR million'). Prefer base_unit + scale.")
     base_unit: str | None = Field(default=None, description="Fundamental unit without scale (e.g. 'INR', 'square feet', '%')")
     scale: int = Field(default=0, description="Power of 10 multiplier (iXBRL convention). 6=millions, 7=crores, 9=billions")
-    dimension: Dimension | None = Field(default=None, description="Category of quantity: monetary, count, area, percentage, etc.")
+    dimension: Dimension | str | None = Field(default=None, description="Category of quantity: monetary, count, area, percentage, etc. (open string)")
     canonical_value: float | None = Field(default=None, description="Scale-resolved canonical value: numeric_value × 10^scale")
     canonical_unit: str | None = Field(default=None, description="Canonical unit after scale folded in (e.g. 'INR', 'USD', '%')")
     context: Context = Field(default_factory=Context, description="Temporal, scope, and conditional qualifiers")
@@ -105,7 +110,7 @@ class RawFactItem(BaseModel):
     numeric_value: float | None = Field(default=None, description="Normalized float if numeric, null otherwise")
     base_unit: str | None = Field(default=None, description="Fundamental unit WITHOUT scale prefix (e.g. 'INR' not 'INR million', 'square feet' not 'million square feet', '%', 'employees')")
     scale: int = Field(default=0, description="Power of 10 multiplier from table header/context. 0=ones, 3=thousands, 5=lakhs, 6=millions, 7=crores, 9=billions")
-    dimension: Dimension | None = Field(default=None, description="Category: monetary, count, area, percentage, ratio, duration, weight, volume, length, other")
+    dimension: Dimension | str | None = Field(default=None, description="Category: monetary, count, area, percentage, ratio, duration, weight, volume, length, custom string, or other")
     temporal: str | None = Field(default=None, description="Time period or date")
     scope: str | None = Field(default=None, description="Scope (e.g. 'Consolidated', 'Standalone')")
     conditions: str | None = Field(default=None, description="Qualifying conditions (e.g. 'Restated', 'Excluding ESOP')")
@@ -125,6 +130,8 @@ class ExtractedFacts(BaseModel):
     facts: list[Fact] = Field(default_factory=list)
     model_used: str = ""
     fallback_attempts: int = 0
+    skipped_pages: list[int] = Field(default_factory=list, description="Pages skipped due to lack of text layer or being image-only")
+    warnings: list[str] = Field(default_factory=list, description="Extraction warnings and partial-scan notices")
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +206,9 @@ class DisputeCode(str, Enum):
     # Unresolved
     UNRESOLVED = "UNRESOLVED"                                  # Could not determine reason
 
+    # Extensible / Custom
+    DISPUTE_CUSTOM = "DISPUTE_CUSTOM"                          # Custom or domain-specific dispute category
+
 
 class EvidenceEntry(BaseModel):
     """Side-by-side evidence from a single document for a cluster."""
@@ -229,6 +239,7 @@ class FactCluster(BaseModel):
     edges: list[ClaimEdge] = Field(default_factory=list, description="Edges within this cluster")
     case_type: CaseType = Field(description="Which of the 4 assignment cases this cluster represents")
     dispute_code: str = Field(default="UNRESOLVED", description="Fine-grained dispute reason code from DisputeCode taxonomy")
+    dispute_detail: str | None = Field(default=None, description="Optional granular explanation or custom category details")
     evidence: list[EvidenceEntry] = Field(default_factory=list, description="Side-by-side evidence from each document")
     explanation: str = Field(default="", description="Human-readable reasoning for the case classification")
     credibility_scores: dict[int, float] = Field(default_factory=dict, description="ArbGraph credibility score per fact index")

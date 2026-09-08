@@ -55,7 +55,7 @@ For each fact, extract:
    Read the table header, column header, or footnotes for phrases like '₹ in million', 'in thousands', '₹ in crore'.
    Common values: 0 (ones/units), 3 (thousands), 5 (lakhs), 6 (millions), 7 (crores), 9 (billions), 12 (trillions).
    Default to 0 if no scale indicator is found.
-7. dimension: Category of quantity. One of: 'monetary', 'count', 'area', 'percentage', 'ratio', 'duration', 'weight', 'volume', 'length', 'other'.
+7. dimension: Category of quantity. Standard types: 'monetary', 'count', 'area', 'percentage', 'ratio', 'duration', 'weight', 'volume', 'length', or any domain-specific category (e.g., 'speed', 'temperature', 'energy'), or 'other'.
 8. temporal: Applicable fiscal period, quarter, or date (e.g., 'Nine months ended Dec 31, 2021', 'FY2021'). Null if unspecified.
 9. scope: Business scope or entity boundary (e.g., 'Consolidated', 'Standalone', 'Spoton subsidiary'). Null if general.
 10. conditions: Accounting or qualifying conditions (e.g., 'Restated', 'Excluding ESOP', 'Pre-tax', 'Includes Spoton results'). Null if standard.
@@ -571,14 +571,14 @@ class GeminiFactExtractor:
 
         return structured_facts
 
-    def extract_and_verify(
+    async def aextract_and_verify(
         self,
         doc: DocumentData,
         page_num: int | None = None,
         pages: list[int] | None = None,
-        batch_size: int = 2,
-        use_async: bool = True,
+        batch_size: int = 4,
     ) -> ExtractedFacts:
+        """Asynchronously extract and verify facts, running concurrently without blocking the event loop."""
         raw_items_with_page: list[tuple[RawFactItem, int | None]] = []
         model_used = ""
         total_attempts = 0
@@ -586,82 +586,56 @@ class GeminiFactExtractor:
         if page_num is not None:
             if page_num < 0 or page_num >= doc.page_count:
                 raise ValueError(f"Page {page_num} is out of bounds (document has {doc.page_count} pages)")
+            requested_pages = [page_num]
             page_batches = [[page_num]]
         elif pages is not None:
+            requested_pages = pages
             page_batches = [pages[i:i + batch_size] for i in range(0, len(pages), batch_size)]
         else:
-            all_pages = list(range(doc.page_count))
-            page_batches = [all_pages[i:i + batch_size] for i in range(0, len(all_pages), batch_size)]
+            requested_pages = list(range(doc.page_count))
+            page_batches = [requested_pages[i:i + batch_size] for i in range(0, len(requested_pages), batch_size)]
 
-        # Decide: use async parallel extraction or sequential
-        # Only use async with real genai.Client (mock clients can't be awaited)
-        use_parallel = (
-            use_async
-            and self._is_real_client
-            and len(page_batches) > 1
-            and page_num is None  # Don't parallelize single-page requests
-        )
+        # Track skipped/empty pages for transparency and observability
+        skipped_pages: list[int] = []
+        for p in requested_pages:
+            if p < len(doc.pages):
+                page = doc.pages[p]
+                if not page.raw_text.strip() and not page.tables:
+                    skipped_pages.append(p)
+
+        warnings: list[str] = list(doc.warnings)
+        if skipped_pages:
+            warnings.append(
+                f"{len(skipped_pages)} of {len(requested_pages)} pages contained no extractable text or tables (scanned/image-only) and were skipped: pages {skipped_pages}"
+            )
+
+        use_parallel = self._is_real_client and len(page_batches) > 1 and page_num is None
 
         if use_parallel:
-            # ---- ASYNC PARALLEL EXTRACTION ----
             logger.info(
-                "Using async parallel extraction for %d batches (max_concurrent=%d)",
+                "Using non-blocking async parallel extraction for %d batches (max_concurrent=%d)",
                 len(page_batches), self.max_concurrent,
             )
             try:
-                # Get or create event loop
-                try:
-                    loop = asyncio.get_running_loop()
-                    # Already in async context — can't use asyncio.run()
-                    # Fall back to sequential
-                    use_parallel = False
-                except RuntimeError:
-                    # No running loop — safe to use asyncio.run()
-                    pass
-
-                if use_parallel:
-                    results = asyncio.run(
-                        self._async_extract_all_batches(doc, page_batches)
-                    )
-                    for items_with_page, m_used, attempts in results:
-                        if not model_used and m_used:
-                            model_used = m_used
-                        total_attempts = max(total_attempts, attempts)
-                        raw_items_with_page.extend(items_with_page)
-
+                results = await self._async_extract_all_batches(doc, page_batches)
+                for items_with_page, m_used, attempts in results:
+                    if not model_used and m_used:
+                        model_used = m_used
+                    total_attempts = max(total_attempts, attempts)
+                    raw_items_with_page.extend(items_with_page)
             except Exception as e:
-                logger.warning(
-                    "Async extraction failed (%s), falling back to sequential", e,
-                )
+                logger.warning("Async extraction failed (%s), falling back to sequential", e)
                 use_parallel = False
                 raw_items_with_page = []
 
         if not use_parallel:
-            # ---- SEQUENTIAL EXTRACTION (original behavior) ----
             for batch in page_batches:
-                if len(batch) == 1 and page_num is not None:
-                    p = batch[0]
-                    page = doc.pages[p]
-                    text_to_extract = page.raw_text
-                    if not text_to_extract.strip() and page.tables:
-                        text_to_extract = "\n".join(
-                            " | ".join(t.headers) + "\n" + "\n".join(" | ".join(row) for row in t.rows)
-                            for t in page.tables
-                        )
-                    if text_to_extract.strip():
-                        items, m_used, attempts = self.extract_from_text(text_to_extract, page_num=p)
-                        if not model_used:
-                            model_used = m_used
-                        total_attempts = max(total_attempts, attempts)
-                        raw_items_with_page.extend((item, p) for item in items)
-                else:
-                    items_with_page, m_used, attempts = self._extract_page_batch(doc, batch)
-                    if not model_used:
-                        model_used = m_used
-                    total_attempts = max(total_attempts, attempts)
-                    raw_items_with_page.extend(items_with_page)
+                items_with_page, m_used, attempts = self._extract_page_batch(doc, batch)
+                if not model_used:
+                    model_used = m_used
+                total_attempts = max(total_attempts, attempts)
+                raw_items_with_page.extend(items_with_page)
 
-        # Ground every extracted fact against the parsed PDF text index
         structured_facts = self._ground_facts(doc, raw_items_with_page, page_num)
 
         return ExtractedFacts(
@@ -670,4 +644,32 @@ class GeminiFactExtractor:
             facts=structured_facts,
             model_used=model_used,
             fallback_attempts=total_attempts,
+            skipped_pages=skipped_pages,
+            warnings=warnings,
         )
+
+    def extract_and_verify(
+        self,
+        doc: DocumentData,
+        page_num: int | None = None,
+        pages: list[int] | None = None,
+        batch_size: int = 4,
+        use_async: bool = True,
+    ) -> ExtractedFacts:
+        """Synchronous wrapper for extract_and_verify."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                return executor.submit(
+                    asyncio.run,
+                    self.aextract_and_verify(doc, page_num=page_num, pages=pages, batch_size=batch_size),
+                ).result()
+        else:
+            return asyncio.run(
+                self.aextract_and_verify(doc, page_num=page_num, pages=pages, batch_size=batch_size)
+            )

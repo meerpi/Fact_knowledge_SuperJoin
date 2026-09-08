@@ -40,30 +40,77 @@ logger = logging.getLogger(__name__)
 # Document authority weights (AttestDB / ArbGraph credibility prior)
 # ---------------------------------------------------------------------------
 
-# Higher = more authoritative. Used as prior credibility before propagation.
-_DOC_AUTHORITY: dict[str, float] = {
-    "prospectus": 0.90,
+# Generic document-type taxonomy — keywords are stored in normalized form
+# (lowercase, spaces only). The lookup function normalizes filenames the
+# same way, so "annual-report", "annual_report", and "annual report" all
+# match the single key "annual report".
+#
+# Higher = more authoritative.  Used as prior credibility before propagation.
+# Callers can override per-document via the doc_authority_overrides parameter.
+_DOC_TYPE_AUTHORITY: dict[str, float] = {
+    # ── Audited / regulatory filings (highest authority) ──
     "annual report": 0.95,
-    "annual-report": 0.95,
-    "10-k": 0.95,
-    "10-q": 0.85,
-    "earnings": 0.80,
-    "presentation": 0.75,
-    "press release": 0.70,
+    "audited financial": 0.95,
+    "10 k": 0.95,          # SEC annual filing
+    "20 f": 0.95,          # SEC foreign private issuer annual
+    "registration statement": 0.95,
+    # ── Prospectus / offering documents ──
+    "prospectus": 0.90,
+    "offering memorandum": 0.90,
+    "drhp": 0.90,          # Draft Red Herring Prospectus (India)
+    "red herring": 0.90,
+    # ── Government / institutional research ──
     "economic survey": 0.90,
-    "rbi": 0.92,
-    "imf": 0.90,
-    "article iv": 0.90,
+    "central bank": 0.90,
+    "monetary policy": 0.90,
+    "article iv": 0.90,    # IMF Article IV consultation
+    "world economic outlook": 0.90,
+    "white paper": 0.85,
+    # ── Quarterly / interim filings ──
+    "10 q": 0.85,          # SEC quarterly filing
+    "quarterly report": 0.85,
+    "interim report": 0.85,
+    # ── Earnings & investor communications ──
+    "earnings": 0.80,
+    "investor presentation": 0.80,
+    "earnings call": 0.80,
+    "shareholder letter": 0.80,
+    # ── Research / analyst reports ──
+    "research report": 0.78,
+    "analyst report": 0.78,
+    # ── Lower-authority communications ──
+    "press release": 0.70,
+    "news release": 0.70,
+    "blog": 0.60,
+    "presentation": 0.65,
 }
+
+DEFAULT_DOC_AUTHORITY: float = 0.75
+
+
+def _normalize_for_lookup(text: str) -> str:
+    """Normalize text for authority keyword matching.
+
+    Replaces hyphens, underscores, dots, and extra whitespace with single
+    spaces so that 'annual-report', 'annual_report', and 'annual report'
+    all produce the same normalized form.
+    """
+    import re
+    return re.sub(r'[\s_\-./]+', ' ', text.lower()).strip()
 
 
 def _estimate_doc_authority(filename: str) -> float:
-    """Estimate document authority from filename keywords."""
-    fn_lower = filename.lower()
-    for keyword, score in _DOC_AUTHORITY.items():
-        if keyword in fn_lower:
+    """Estimate document authority from filename keywords.
+
+    Uses normalized keyword matching: both the filename and all dictionary
+    keys are normalized (hyphens/underscores → spaces) before comparison.
+    Returns DEFAULT_DOC_AUTHORITY (0.75) if no keyword matches.
+    """
+    fn_norm = _normalize_for_lookup(filename)
+    for keyword, score in _DOC_TYPE_AUTHORITY.items():
+        if keyword in fn_norm:
             return score
-    return 0.75  # default
+    return DEFAULT_DOC_AUTHORITY
 
 
 # ---------------------------------------------------------------------------
@@ -206,44 +253,81 @@ def _align_facts(facts: list[Fact]) -> dict[int, list[int]]:
 
 
 
-# ---------------------------------------------------------------------------
-# Stage 2: Evidence Graph — intra-cluster edge classification
-# ---------------------------------------------------------------------------
+# Maximum batch size for pairwise NLI comparison.
+# A batch of 50 facts = 1,225 pairs max — keeps DeBERTa inference under ~0.5s per batch.
+# For clusters larger than 50, facts are processed in iterative sets of 50 using
+# high-confidence cluster anchors, ensuring 100% of facts are checked without O(n²) explosion.
+MAX_CLUSTER_NLI_SIZE: int = 50
+CLUSTER_ANCHOR_SIZE: int = 10
+
 
 def _build_cluster_edges(
     facts: list[Fact],
     cluster_indices: list[int],
     nli_threshold: float = 0.7,
 ) -> list[ClaimEdge]:
-    """Run the 3-stage contradiction engine on facts within a cluster.
+    """Run the 3-stage contradiction engine on facts within a cluster in sets of 50.
 
     Reuses the existing detect_contradictions() pipeline, but scoped to
     only the facts in this cluster.
+
+    - Clusters <= 50 facts: evaluated in a single batch (all pairwise combinations).
+    - Clusters > 50 facts: evaluated in iterative sets of 50:
+      1. Top 10 highest-confidence facts are designated as cluster 'anchors'.
+      2. Remaining facts are partitioned into chunks of 40.
+      3. Each set combines [10 anchors + 40 chunk facts] = 50 facts max.
+      4. Every fact is tested against the anchors and within its batch; all edges are
+         merged and deduplicated so NO facts are skipped.
     """
     if len(cluster_indices) < 2:
         return []
 
-    # Extract the subset of facts
-    cluster_facts = [facts[i] for i in cluster_indices]
-
-    # Run contradiction detection on this subset
-    report = detect_contradictions(
-        facts=cluster_facts,
-        doc_id="cluster",
-        nli_threshold=nli_threshold,
+    sorted_indices = sorted(
+        cluster_indices,
+        key=lambda idx: facts[idx].confidence,
+        reverse=True,
     )
 
-    # Remap indices back to global fact pool
+    # If small enough, run standard single batch
+    if len(sorted_indices) <= MAX_CLUSTER_NLI_SIZE:
+        batches = [sorted_indices]
+    else:
+        # Multi-batch: retain top anchors across all batches
+        anchor_count = min(CLUSTER_ANCHOR_SIZE, len(sorted_indices) // 2)
+        anchors = sorted_indices[:anchor_count]
+        remaining = sorted_indices[anchor_count:]
+        chunk_size = max(1, MAX_CLUSTER_NLI_SIZE - anchor_count)
+
+        batches = []
+        for i in range(0, len(remaining), chunk_size):
+            chunk = remaining[i : i + chunk_size]
+            batches.append(anchors + chunk)
+
     remapped_edges: list[ClaimEdge] = []
-    for edge in report.edges:
-        remapped_edges.append(ClaimEdge(
-            source_fact_idx=cluster_indices[edge.source_fact_idx],
-            target_fact_idx=cluster_indices[edge.target_fact_idx],
-            edge_type=edge.edge_type,
-            detection_method=edge.detection_method,
-            confidence=edge.confidence,
-            explanation=edge.explanation,
-        ))
+    seen_edge_keys: set[tuple[int, int, str]] = set()
+
+    for batch in batches:
+        cluster_facts = [facts[i] for i in batch]
+        report = detect_contradictions(
+            facts=cluster_facts,
+            doc_id="cluster",
+            nli_threshold=nli_threshold,
+        )
+
+        for edge in report.edges:
+            src_global = batch[edge.source_fact_idx]
+            tgt_global = batch[edge.target_fact_idx]
+            key = (min(src_global, tgt_global), max(src_global, tgt_global), edge.edge_type.value)
+            if key not in seen_edge_keys:
+                seen_edge_keys.add(key)
+                remapped_edges.append(ClaimEdge(
+                    source_fact_idx=src_global,
+                    target_fact_idx=tgt_global,
+                    edge_type=edge.edge_type,
+                    detection_method=edge.detection_method,
+                    confidence=edge.confidence,
+                    explanation=edge.explanation,
+                ))
 
     return remapped_edges
 
@@ -259,20 +343,32 @@ def _propagate_credibility(
     doc_filenames: dict[str, str],
     iterations: int = 3,
     damping: float = 0.15,
+    doc_authority_overrides: dict[str, float] | None = None,
 ) -> dict[int, float]:
     """Intensity-driven credibility propagation (ArbGraph Section 3.3).
 
     Initial credibility = (quote_verification_confidence × doc_authority).
     Each iteration: nodes supported by high-credibility neighbors gain score;
     nodes contradicted by high-credibility neighbors lose score.
+
+    Args:
+        doc_authority_overrides: Optional mapping of doc_id → authority score
+            (0.0–1.0). When provided, these take priority over the filename
+            heuristic for the specified documents.
     """
+    overrides = doc_authority_overrides or {}
+
     # Initialize credibility scores
     scores: dict[int, float] = {}
     for idx in cluster_indices:
         fact = facts[idx]
-        doc_auth = _estimate_doc_authority(
-            doc_filenames.get(fact.provenance.doc_id, "")
-        )
+        doc_id = fact.provenance.doc_id
+        if doc_id in overrides:
+            doc_auth = overrides[doc_id]
+        else:
+            doc_auth = _estimate_doc_authority(
+                doc_filenames.get(doc_id, "")
+            )
         # Initial credibility: verification confidence × document authority
         scores[idx] = fact.confidence * doc_auth
 
@@ -665,6 +761,7 @@ def build_claim_graph(
     doc_facts: dict[str, list[Fact]],
     doc_filenames: dict[str, str],
     nli_threshold: float = 0.7,
+    doc_authority_overrides: dict[str, float] | None = None,
 ) -> ClaimGraph:
     """Build the complete cross-document claim graph.
 
@@ -678,6 +775,9 @@ def build_claim_graph(
         doc_facts: Mapping of doc_id → list of extracted Fact objects.
         doc_filenames: Mapping of doc_id → original filename.
         nli_threshold: Minimum confidence for DeBERTa NLI edges.
+        doc_authority_overrides: Optional mapping of doc_id → authority
+            score (0.0–1.0).  When provided, these take priority over
+            the filename-based heuristic for credibility propagation.
 
     Returns:
         A ClaimGraph with typed clusters, evidence, and explanations.
@@ -724,7 +824,8 @@ def build_claim_graph(
 
         # Credibility propagation
         credibility = _propagate_credibility(
-            all_facts, indices, edges, doc_filenames
+            all_facts, indices, edges, doc_filenames,
+            doc_authority_overrides=doc_authority_overrides,
         )
 
         # Classify the cluster and assign dispute code
@@ -821,6 +922,251 @@ def build_claim_graph(
             "singleton_count": len(unmatched),
         },
     )
+
+
+def append_document_to_claim_graph(
+    existing_graph: ClaimGraph | None,
+    existing_doc_facts: dict[str, list[Fact]],
+    new_doc_id: str,
+    new_doc_facts: list[Fact],
+    new_doc_filename: str,
+    nli_threshold: float = 0.7,
+    doc_authority_overrides: dict[str, float] | None = None,
+) -> tuple[ClaimGraph, dict]:
+    """Incrementally update a ClaimGraph with facts from a new document.
+
+    Streaming entity resolution & neighborhood re-arbitration pattern:
+    - New facts are routed to existing clusters by semantic alignment.
+    - Matching an existing singleton upgrades it to a multi-fact cluster.
+    - Only tainted/affected clusters have edges and credibility re-arbitrated.
+    - Unaffected clusters are preserved with zero re-computation.
+    """
+    t_start = time.time()
+
+    if existing_graph is None or existing_graph.total_facts == 0:
+        all_docs = {new_doc_id: new_doc_facts}
+        all_names = {new_doc_id: new_doc_filename}
+        graph = build_claim_graph(
+            all_docs, all_names,
+            nli_threshold=nli_threshold,
+            doc_authority_overrides=doc_authority_overrides,
+        )
+        stats = {
+            "new_facts_count": len(new_doc_facts),
+            "clusters_updated": 0,
+            "clusters_created": len(graph.clusters),
+            "new_singletons": len(graph.unmatched_facts),
+            "unaffected_clusters": 0,
+            "duration_seconds": round(time.time() - t_start, 3),
+        }
+        return graph, stats
+
+    # Reconstruct stable all_facts order for existing facts
+    all_facts: list[Fact] = []
+    for doc_id in sorted(existing_doc_facts.keys()):
+        all_facts.extend(existing_doc_facts[doc_id])
+
+    base_offset = len(all_facts)
+    all_facts.extend(new_doc_facts)
+    total_facts = len(all_facts)
+
+    # Document filenames map
+    doc_filenames = dict(existing_graph.documents)
+    doc_filenames[new_doc_id] = new_doc_filename
+
+    # Track affected clusters and singletons
+    existing_clusters: list[FactCluster] = [c.model_copy(deep=True) for c in existing_graph.clusters]
+    cluster_by_id = {c.cluster_id: c for c in existing_clusters}
+    dirty_cluster_ids: set[str] = set()
+    initial_cluster_ids = set(cluster_by_id.keys())
+
+    unmatched_set: set[int] = set(existing_graph.unmatched_facts)
+    unassigned_new_indices: list[int] = []
+
+    # Step 1: Route each new fact to an existing cluster or match an existing singleton
+    for i, new_fact in enumerate(new_doc_facts):
+        new_global_idx = base_offset + i
+        matched_cluster = False
+
+        # 1a. Check existing clusters
+        for c in existing_clusters:
+            if _subjects_match(new_fact.subject, c.subject) and _predicates_match(new_fact.predicate, c.predicate):
+                c.fact_indices.append(new_global_idx)
+                dirty_cluster_ids.add(c.cluster_id)
+                matched_cluster = True
+                break
+
+        if matched_cluster:
+            continue
+
+        # 1b. Check existing singletons in unmatched_set
+        matched_singleton_idx = None
+        for s_idx in sorted(list(unmatched_set)):
+            s_fact = all_facts[s_idx]
+            if _subjects_match(new_fact.subject, s_fact.subject) and _predicates_match(new_fact.predicate, s_fact.predicate):
+                matched_singleton_idx = s_idx
+                break
+
+        if matched_singleton_idx is not None:
+            unmatched_set.remove(matched_singleton_idx)
+            # Create a new cluster from the matched singleton and this new fact
+            new_cluster_id = hashlib.md5(
+                f"{all_facts[matched_singleton_idx].subject}|{all_facts[matched_singleton_idx].predicate}|{matched_singleton_idx}_{new_global_idx}".encode()
+            ).hexdigest()[:8]
+            new_cluster = FactCluster(
+                cluster_id=new_cluster_id,
+                subject=all_facts[matched_singleton_idx].subject,
+                predicate=all_facts[matched_singleton_idx].predicate,
+                fact_indices=[matched_singleton_idx, new_global_idx],
+                case_type=CaseType.CORROBORATED,
+                dispute_code=DisputeCode.AGREEMENT_EXACT.value,
+                evidence=[],
+                explanation="",
+            )
+            existing_clusters.append(new_cluster)
+            cluster_by_id[new_cluster_id] = new_cluster
+            dirty_cluster_ids.add(new_cluster_id)
+            continue
+
+        # 1c. Not matched to existing clusters or singletons
+        unassigned_new_indices.append(new_global_idx)
+
+    # Step 2: Check if unassigned new facts match each other
+    clusters_created_from_new = 0
+    if len(unassigned_new_indices) > 1:
+        unassigned_facts = [all_facts[idx] for idx in unassigned_new_indices]
+        local_clusters = _align_facts(unassigned_facts)
+        for root_local, local_indices in local_clusters.items():
+            global_indices = [unassigned_new_indices[li] for li in local_indices]
+            if len(global_indices) >= 2:
+                new_c_id = hashlib.md5(
+                    f"{all_facts[global_indices[0]].subject}|{all_facts[global_indices[0]].predicate}|inc_{global_indices[0]}".encode()
+                ).hexdigest()[:8]
+                new_cluster = FactCluster(
+                    cluster_id=new_c_id,
+                    subject=all_facts[global_indices[0]].subject,
+                    predicate=all_facts[global_indices[0]].predicate,
+                    fact_indices=global_indices,
+                    case_type=CaseType.CORROBORATED,
+                    dispute_code=DisputeCode.AGREEMENT_EXACT.value,
+                    evidence=[],
+                    explanation="",
+                )
+                existing_clusters.append(new_cluster)
+                cluster_by_id[new_c_id] = new_cluster
+                dirty_cluster_ids.add(new_c_id)
+                clusters_created_from_new += 1
+            else:
+                unmatched_set.add(global_indices[0])
+    elif len(unassigned_new_indices) == 1:
+        unmatched_set.add(unassigned_new_indices[0])
+
+    # Step 3: Re-arbitrate ONLY dirty clusters
+    clusters_updated_count = 0
+    for c_id in dirty_cluster_ids:
+        c = cluster_by_id[c_id]
+        clusters_updated_count += 1
+
+        # Build edges within this updated cluster
+        edges = _build_cluster_edges(all_facts, c.fact_indices, nli_threshold=nli_threshold)
+        c.edges = edges
+
+        # Credibility propagation
+        credibility = _propagate_credibility(
+            all_facts, c.fact_indices, edges, doc_filenames,
+            doc_authority_overrides=doc_authority_overrides,
+        )
+        c.credibility_scores = credibility
+
+        # Case classification and dispute code
+        case_type, dispute_code = _classify_cluster(all_facts, c.fact_indices, edges)
+        c.case_type = case_type
+        c.dispute_code = dispute_code
+
+        # Explanation
+        c.explanation = _generate_explanation(
+            all_facts, c.fact_indices, edges, case_type, credibility, doc_filenames
+        )
+
+        # Evidence
+        c.evidence = _build_evidence_entries(all_facts, c.fact_indices, doc_filenames)
+
+        # Consensus
+        if credibility:
+            best_idx = max(c.fact_indices, key=lambda i: credibility.get(i, 0))
+            c.consensus_value = all_facts[best_idx].canonical_value
+            c.consensus_unit = all_facts[best_idx].canonical_unit
+
+        c.doc_count = len({all_facts[i].provenance.doc_id for i in c.fact_indices})
+
+    # Step 4: Scan new facts for extraction failures (Case 4)
+    new_failures = _detect_extraction_failures(new_doc_facts, doc_filenames)
+    all_failures = list(existing_graph.extraction_failures)
+    for f in new_failures:
+        if f.fact_index is not None:
+            f.fact_index += base_offset
+        all_failures.append(f)
+
+    # Step 5: Sort clusters and assemble summary
+    case_priority = {
+        CaseType.CONTRADICTED: 0,
+        CaseType.RECONCILED_TEMPORAL: 1,
+        CaseType.RECONCILED_SCOPE: 2,
+        CaseType.RECONCILED_CONDITIONS: 3,
+        CaseType.RECONCILED_UNIT: 4,
+        CaseType.CORROBORATED: 5,
+    }
+    existing_clusters.sort(key=lambda c: (
+        -c.doc_count,
+        case_priority.get(c.case_type, 99),
+        -len(c.edges),
+    ))
+
+    case_summary: dict[str, int] = defaultdict(int)
+    for c in existing_clusters:
+        case_summary[c.case_type.value] += 1
+    if all_failures:
+        case_summary[CaseType.EXTRACTION_FAILURE.value] = len(all_failures)
+
+    duration = time.time() - t_start
+    unaffected_count = len(existing_clusters) - len(dirty_cluster_ids)
+
+    updated_graph = ClaimGraph(
+        documents=doc_filenames,
+        total_facts=total_facts,
+        clusters=existing_clusters,
+        extraction_failures=all_failures,
+        unmatched_facts=sorted(list(unmatched_set)),
+        case_summary=dict(case_summary),
+        pipeline_metadata={
+            "duration_seconds": round(duration, 3),
+            "alignment_method": "incremental_streaming_resolution",
+            "edge_classification": "symbolic_numeric + temporal + nli_deberta",
+            "credibility_method": "arbgraph_intensity_propagation",
+            "nli_threshold": nli_threshold,
+            "document_count": len(doc_filenames),
+            "total_facts": total_facts,
+            "cluster_count": len(existing_clusters),
+            "singleton_count": len(unmatched_set),
+            "incremental": True,
+            "affected_clusters": len(dirty_cluster_ids),
+            "unaffected_clusters": unaffected_count,
+        },
+    )
+
+    new_clusters_created = len([c_id for c_id in dirty_cluster_ids if c_id not in initial_cluster_ids])
+    existing_clusters_updated = len(dirty_cluster_ids) - new_clusters_created
+
+    stats = {
+        "new_facts_count": len(new_doc_facts),
+        "clusters_updated": existing_clusters_updated,
+        "clusters_created": new_clusters_created,
+        "new_singletons": len(unmatched_set) - len(existing_graph.unmatched_facts),
+        "unaffected_clusters": unaffected_count,
+        "duration_seconds": round(duration, 3),
+    }
+
+    return updated_graph, stats
 
 
 def get_assignment_cases(graph: ClaimGraph) -> dict:

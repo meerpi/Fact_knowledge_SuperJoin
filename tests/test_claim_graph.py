@@ -12,13 +12,17 @@ from app.models import (
     Provenance,
 )
 from app.claim_graph import (
+    DEFAULT_DOC_AUTHORITY,
     _UnionFind,
     _align_facts,
     _classify_cluster,
     _detect_extraction_failures,
+    _estimate_doc_authority,
+    _normalize_for_lookup,
     _normalize_subject,
     _propagate_credibility,
     _subjects_match,
+    append_document_to_claim_graph,
     build_claim_graph,
     get_assignment_cases,
 )
@@ -296,6 +300,123 @@ class TestCredibilityPropagation:
 
 
 # ---------------------------------------------------------------------------
+# Document authority estimation & override tests
+# ---------------------------------------------------------------------------
+
+class TestDocAuthority:
+    """Tests for the document authority estimation and override system."""
+
+    # --- Normalized keyword matching ---
+
+    def test_normalize_hyphens_underscores_spaces(self):
+        """All separator variants normalize to the same form."""
+        assert _normalize_for_lookup("annual-report") == "annual report"
+        assert _normalize_for_lookup("annual_report") == "annual report"
+        assert _normalize_for_lookup("annual report") == "annual report"
+        assert _normalize_for_lookup("annual--report") == "annual report"
+        assert _normalize_for_lookup("ANNUAL_REPORT") == "annual report"
+
+    def test_estimate_matches_hyphenated_filenames(self):
+        """Filenames with hyphens match space-keyed authority entries."""
+        # This was the bug: "economic-survey" didn't match "economic survey"
+        score = _estimate_doc_authority("01-india-economic-survey-2024.pdf")
+        assert score == 0.90
+        score = _estimate_doc_authority("02-rbi-annual-report-2024.pdf")
+        assert score == 0.95
+
+    def test_estimate_matches_underscored_filenames(self):
+        """Filenames with underscores match space-keyed authority entries."""
+        score = _estimate_doc_authority("delhivery_annual_report_fy24.pdf")
+        assert score == 0.95
+        score = _estimate_doc_authority("tesla_10_k_2024.pdf")
+        assert score == 0.95
+
+    def test_estimate_returns_default_for_unknown(self):
+        """Non-matching filenames get the DEFAULT_DOC_AUTHORITY."""
+        score = _estimate_doc_authority("random-document.pdf")
+        assert score == DEFAULT_DOC_AUTHORITY
+        score = _estimate_doc_authority("clinical-trial-results.pdf")
+        assert score == DEFAULT_DOC_AUTHORITY
+
+    def test_estimate_generic_financial_types(self):
+        """Generic financial document types are recognized regardless of domain."""
+        # These should work for any company, not just demo datasets
+        assert _estimate_doc_authority("walmart-10-k-2024.pdf") == 0.95
+        assert _estimate_doc_authority("apple-quarterly-report-q3.pdf") == 0.85
+        assert _estimate_doc_authority("company-press-release.pdf") == 0.70
+        assert _estimate_doc_authority("acme-prospectus-2024.pdf") == 0.90
+
+    # --- Caller-supplied overrides ---
+
+    def test_override_changes_propagation_scores(self):
+        """doc_authority_overrides take priority over filename heuristic."""
+        facts = [
+            _fact("X", "rev", "100", confidence=0.95, doc_id="doc1"),
+            _fact("X", "rev", "100", confidence=0.95, doc_id="doc2"),
+        ]
+        # No edges: test pure initial score assignment (no boost/penalty)
+        edges = []
+        # Without overrides: both "unknown.pdf" → DEFAULT_DOC_AUTHORITY
+        scores_no_override = _propagate_credibility(
+            facts, [0, 1], edges,
+            {"doc1": "unknown.pdf", "doc2": "unknown.pdf"},
+        )
+        # With overrides: doc1 is an SEC filing (0.95), doc2 is a blog (0.60)
+        scores_with_override = _propagate_credibility(
+            facts, [0, 1], edges,
+            {"doc1": "unknown.pdf", "doc2": "unknown.pdf"},
+            doc_authority_overrides={"doc1": 0.95, "doc2": 0.60},
+        )
+        # Override should produce different starting scores
+        assert scores_with_override[0] != scores_with_override[1]
+        # doc1 (0.95 authority) should be higher than doc2 (0.60 authority)
+        assert scores_with_override[0] > scores_with_override[1]
+        # Without override, both start identical (same confidence × same authority)
+        assert abs(scores_no_override[0] - scores_no_override[1]) < 0.01
+
+    def test_override_flips_consensus_winner(self):
+        """Overrides can change which fact wins a contradiction arbitration."""
+        facts = [
+            _fact("X", "rev", "100", confidence=0.95, doc_id="doc1"),
+            _fact("X", "rev", "200", confidence=0.95, doc_id="doc2"),
+        ]
+        edges = [ClaimEdge(
+            source_fact_idx=0, target_fact_idx=1,
+            edge_type=EdgeType.CONTRADICTS,
+            detection_method="test", confidence=1.0, explanation="",
+        )]
+        # Override: doc2 is highly authoritative → should win
+        scores = _propagate_credibility(
+            facts, [0, 1], edges,
+            {"doc1": "unknown.pdf", "doc2": "unknown.pdf"},
+            doc_authority_overrides={"doc1": 0.60, "doc2": 0.95},
+        )
+        assert scores[1] > scores[0], "Higher-authority doc should win the contradiction"
+
+    def test_uniform_authority_produces_zero_penalty_on_equal_confidence(self):
+        """When all docs have identical authority and confidence, contradiction penalty is zero."""
+        facts = [
+            _fact("X", "rev", "100", confidence=0.95, doc_id="doc1"),
+            _fact("X", "rev", "200", confidence=0.95, doc_id="doc2"),
+        ]
+        edges = [ClaimEdge(
+            source_fact_idx=0, target_fact_idx=1,
+            edge_type=EdgeType.CONTRADICTS,
+            detection_method="test", confidence=0.85, explanation="",
+        )]
+        # Both get same authority (default)
+        scores = _propagate_credibility(
+            facts, [0, 1], edges,
+            {"doc1": "unknown.pdf", "doc2": "unknown.pdf"},
+        )
+        # Scores should remain identical — propagation can't differentiate
+        assert scores[0] == scores[1], (
+            f"Expected identical scores but got {scores[0]} vs {scores[1]}. "
+            "Uniform authority should produce zero penalty on equal-confidence facts."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Extraction failure detection tests
 # ---------------------------------------------------------------------------
 
@@ -375,5 +496,138 @@ class TestBuildClaimGraph:
         assert "case_4_extraction_failure" in cases
 
 
+# ---------------------------------------------------------------------------
+# Incremental Claim Graph tests (Streaming Entity Resolution & Re-arbitration)
+# ---------------------------------------------------------------------------
+
+class TestIncrementalClaimGraph:
+    def test_append_corroborating_fact_updates_cluster(self):
+        # Initial graph with 1 cluster
+        f1 = _fact("Delhivery", "revenue", "₹1,000 Mn", numeric=1000, canonical=1e9,
+                   unit="INR", temporal="FY2021", doc_id="doc1", confidence=0.95)
+        f2 = _fact("Delhivery", "pin_codes", "10,000", numeric=10000, canonical=10000,
+                   unit="PIN codes", doc_id="doc1")
+        initial_facts = {"doc1": [f1, f2]}
+        initial_names = {"doc1": "prospectus.pdf"}
+        initial_graph = build_claim_graph(initial_facts, initial_names)
+
+        # Initial state: 0 multi-fact clusters (f1 and f2 are distinct singletons)
+        assert len(initial_graph.clusters) == 0
+        assert len(initial_graph.unmatched_facts) == 2
+
+        # New document arrives with a matching revenue fact
+        f3 = _fact("Delhivery", "revenue", "₹1,000 Mn", numeric=1000, canonical=1e9,
+                   unit="INR", temporal="FY2021", doc_id="doc2", confidence=0.90)
+        
+        updated_graph, stats = append_document_to_claim_graph(
+            existing_graph=initial_graph,
+            existing_doc_facts=initial_facts,
+            new_doc_id="doc2",
+            new_doc_facts=[f3],
+            new_doc_filename="annual_report.pdf",
+        )
+
+        assert updated_graph.total_facts == 3
+        assert len(updated_graph.documents) == 2
+        # f1 and f3 should have merged into 1 multi-doc cluster!
+        assert len(updated_graph.clusters) == 1
+        c = updated_graph.clusters[0]
+        assert c.subject.lower() == "delhivery"
+        assert c.predicate == "revenue"
+        assert c.case_type == CaseType.CORROBORATED
+        assert c.doc_count == 2
+        assert stats["clusters_created"] == 1
+        # pin_codes remains unmatched singleton
+        assert len(updated_graph.unmatched_facts) == 1
+
+    def test_append_fact_promotes_singleton_and_preserves_unaffected(self):
+        # Doc 1 has revenue and ebitda
+        f1 = _fact("RBI", "repo_rate", "6.5%", numeric=6.5, canonical=6.5,
+                   unit="%", doc_id="doc1")
+        f2 = _fact("India", "inflation", "5.4%", numeric=5.4, canonical=5.4,
+                   unit="%", doc_id="doc1")
+        # Doc 2 already corroborates repo_rate
+        f3 = _fact("RBI", "repo_rate", "6.5%", numeric=6.5, canonical=6.5,
+                   unit="%", doc_id="doc2")
+
+        doc_facts = {"doc1": [f1, f2], "doc2": [f3]}
+        graph = build_claim_graph(doc_facts, {"doc1": "rbi.pdf", "doc2": "survey.pdf"})
+        assert len(graph.clusters) == 1  # repo_rate cluster
+        assert len(graph.unmatched_facts) == 1  # inflation is singleton
+
+        # Doc 3 arrives with inflation = 3.6% (different temporal/context)
+        f4 = _fact("India", "inflation", "3.6%", numeric=3.6, canonical=3.6,
+                   unit="%", temporal="Q2 FY25", doc_id="doc3")
+        f5 = _fact("India", "exports", "$400B", numeric=400, canonical=400e9,
+                   unit="USD", doc_id="doc3")
+
+        updated_graph, stats = append_document_to_claim_graph(
+            existing_graph=graph,
+            existing_doc_facts=doc_facts,
+            new_doc_id="doc3",
+            new_doc_facts=[f4, f5],
+            new_doc_filename="imf.pdf",
+        )
+
+        assert updated_graph.total_facts == 5
+        # We now have 2 clusters: repo_rate (unaffected) and inflation (newly formed)
+        assert len(updated_graph.clusters) == 2
+        # stats should show exactly 1 unaffected cluster
+        assert stats["unaffected_clusters"] == 1
+        assert stats["clusters_created"] == 1
+        # exports is a new singleton
+        assert len(updated_graph.unmatched_facts) == 1
+
+    def test_append_to_empty_graph_acts_as_initial_build(self):
+        f = _fact("Delhivery", "revenue", "₹500 Cr", numeric=500, canonical=5e9, doc_id="doc1")
+        graph, stats = append_document_to_claim_graph(
+            existing_graph=None,
+            existing_doc_facts={},
+            new_doc_id="doc1",
+            new_doc_facts=[f],
+            new_doc_filename="report.pdf",
+        )
+    def test_large_cluster_batched_in_sets_of_50_checks_all_facts(self):
+        """Verify clusters >50 facts are processed in iterative sets of 50 and do not stop at 50."""
+        from app.claim_graph import _build_cluster_edges
+
+        # Create 70 facts (exceeding 50 cap)
+        facts = []
+        for i in range(70):
+            val = 100.0 if i != 65 else 200.0  # Fact 65 contradicts the others!
+            facts.append(_fact(
+                subject="Acme",
+                predicate="revenue",
+                value=f"${val}M",
+                numeric=val,
+                canonical=val * 1e6,
+                unit="USD",
+                doc_id=f"doc_{i % 5}",
+                confidence=0.95 - (i * 0.001),  # decreasing confidence
+            ))
+
+        indices = list(range(70))
+        edges = _build_cluster_edges(facts, indices)
+
+        # Ensure we have edges
+        assert len(edges) > 0
+
+        # Verify that facts past index 50 (such as fact 65) were NOT ignored and have edges!
+        edges_with_fact_65 = [
+            e for e in edges
+            if e.source_fact_idx == 65 or e.target_fact_idx == 65
+        ]
+        assert len(edges_with_fact_65) > 0, "Fact 65 must not be ignored by the 50-cap batcher"
+
+        # Fact 65 ($200M) vs Anchor facts ($100M) should detect a contradiction!
+        contradictions_for_65 = [
+            e for e in edges_with_fact_65
+            if e.edge_type == EdgeType.CONTRADICTS
+        ]
+        assert len(contradictions_for_65) > 0, "Fact 65 must detect contradiction against anchors"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+

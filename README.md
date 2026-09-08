@@ -164,7 +164,17 @@ Interactive Swagger API documentation will be available at: `http://localhost:80
 | `POST` | `/documents/{id}/extract` | Extract atomic facts with quote grounding and canonicalization |
 | `POST` | `/documents/{id}/contradictions` | Run 3-stage contradiction detection against another document |
 | `POST` | `/reconcile` | Build cross-document ArbGraph claim graph across multiple PDFs |
+| `POST` | `/reconcile/append` | Incrementally ingest a new document into an existing claim graph |
 | `GET` | `/reconcile/cases` | Retrieve the 4 required demonstration cases in structured JSON |
+
+**Credibility override.** Both `/reconcile` and `/reconcile/append` accept an optional `doc_authority` body parameter — a JSON object mapping `doc_id → float (0.0–1.0)` — that overrides the filename-based authority heuristic used in credibility propagation. Example:
+
+```json
+{
+  "doc_ids": ["sec_10k", "press_release"],
+  "doc_authority": {"sec_10k": 0.95, "press_release": 0.65}
+}
+```
 
 ---
 
@@ -175,6 +185,7 @@ Interactive Swagger API documentation will be available at: `http://localhost:80
 ├── app/
 │   ├── __init__.py
 │   ├── models.py           # Pydantic v2 schemas: Fact, Provenance, ClaimGraph, DisputeCode
+│   ├── storage.py          # SQLite WAL persistence layer (documents, facts, claim graphs)
 │   ├── pdf_parser.py       # Dual-layer parser: PyMuPDF + Docling + 3-tier quote verifier
 │   ├── extractor.py        # Gemini extraction cascade with rate limiting and prompt caching
 │   ├── normalizer.py       # Symbolic canonicalization (scales, currencies, accounting negatives)
@@ -183,6 +194,7 @@ Interactive Swagger API documentation will be available at: `http://localhost:80
 │   ├── claim_graph.py      # ArbGraph claim alignment, credibility propagation, 4 cases
 │   └── server.py           # FastAPI REST API endpoints
 ├── tests/
+│   ├── test_storage.py     # Unit tests for SQLite WAL persistence and transactions
 │   ├── test_normalizer.py  # Unit tests for scale & currency parsing
 │   ├── test_extractor.py   # Unit tests for cascade & quote verification
 │   ├── test_contradiction.py # Unit tests for contradiction classification

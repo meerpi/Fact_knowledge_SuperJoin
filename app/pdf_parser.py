@@ -16,6 +16,7 @@ PyMuPDF is retained for Layer 1 because it provides:
 import hashlib
 import logging
 import re
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -59,6 +60,8 @@ def _get_docling_converter():
         pipeline_options.do_ocr = False
         pipeline_options.do_table_structure = True
         pipeline_options.table_structure_options.mode = TableFormerMode.FAST
+        pipeline_options.generate_page_images = False
+        pipeline_options.generate_picture_images = False
 
         # Auto-detect CUDA GPU (e.g. RTX 3060)
         if torch.cuda.is_available():
@@ -130,12 +133,20 @@ def parse_pdf(filepath: str | Path) -> DocumentData:
     else:
         pages = _extract_structured_pages_pdfplumber(filepath, raw_index, header_footer_lines)
 
+    warnings = []
+    if scanned_pages and len(scanned_pages) < page_count:
+        msg = f"{len(scanned_pages)} of {page_count} pages appear to be scanned images with no extractable text: pages {scanned_pages}"
+        warnings.append(msg)
+        logger.warning(msg)
+
     return DocumentData(
         doc_id=doc_id,
         filename=filepath.name,
         page_count=page_count,
         pages=pages,
         raw_text_index=raw_index,
+        scanned_pages=scanned_pages,
+        warnings=warnings,
     )
 
 
@@ -261,16 +272,77 @@ def _extract_structured_pages_docling(
     - ML table detection via TableFormer (handles merged cells, borderless)
     - Multi-page table continuity
     - OCR for scanned pages
+
+    For large PDFs, pages are processed in batches via page_range to control
+    peak memory and enable progress reporting.  TableFormer quality is
+    preserved — no tables are skipped.
     """
     from docling_core.types.doc.document import ContentLayer
 
-    result = converter.convert(str(filepath))
-    doc = result.document
+    DOCLING_PAGE_BATCH_SIZE = 25  # pages per Docling batch
 
     # Build per-page collections
     page_tables: dict[int, list[TableBlock]] = {i: [] for i in range(page_count)}
     page_texts: dict[int, list[TextBlock]] = {i: [] for i in range(page_count)}
 
+    # Process in page_range batches for memory control & progress reporting
+    t_total_start = time.perf_counter()
+    num_batches = (page_count + DOCLING_PAGE_BATCH_SIZE - 1) // DOCLING_PAGE_BATCH_SIZE
+
+    for batch_idx in range(num_batches):
+        batch_start = batch_idx * DOCLING_PAGE_BATCH_SIZE  # 0-indexed
+        batch_end = min(batch_start + DOCLING_PAGE_BATCH_SIZE, page_count)
+        # Docling page_range is 1-indexed inclusive
+        page_range = (batch_start + 1, batch_end)
+
+        t_batch = time.perf_counter()
+        result = converter.convert(str(filepath), page_range=page_range)
+        dt_batch = time.perf_counter() - t_batch
+        logger.info(
+            "Docling batch %d/%d (pages %d-%d): %.1fs (%.1f pages/sec)",
+            batch_idx + 1, num_batches, batch_start, batch_end - 1,
+            dt_batch, (batch_end - batch_start) / max(dt_batch, 0.001),
+        )
+        doc = result.document
+
+        _merge_docling_result_into_pages(
+            doc, page_tables, page_texts, page_count,
+            hf_lines, batch_start,
+        )
+
+    dt_total = time.perf_counter() - t_total_start
+    logger.info(
+        "Docling parsing complete: %d pages in %.1fs (%.1f pages/sec, %d tables found)",
+        page_count, dt_total, page_count / max(dt_total, 0.001),
+        sum(len(t) for t in page_tables.values()),
+    )
+
+    # Assemble PageData objects
+    pages = []
+    for page_num in range(page_count):
+        pages.append(PageData(
+            page_number=page_num,
+            raw_text=raw_index.get(page_num, ""),
+            text_blocks=page_texts.get(page_num, []),
+            tables=page_tables.get(page_num, []),
+        ))
+
+    return pages
+
+
+def _merge_docling_result_into_pages(
+    doc,
+    page_tables: dict[int, list[TableBlock]],
+    page_texts: dict[int, list[TextBlock]],
+    page_count: int,
+    hf_lines: set[str],
+    batch_page_offset: int,
+) -> None:
+    """Merge a single Docling batch result into the page-level collections.
+
+    batch_page_offset is the 0-indexed page number of the first page in this batch.
+    Docling page_range returns 1-indexed page numbers relative to the original document.
+    """
     # Process all items in reading order
     for item, level in doc.iterate_items():
         # Get page number from provenance (Docling uses 1-indexed pages)
@@ -340,18 +412,6 @@ def _extract_structured_pages_docling(
                 page=page_no,
                 bbox=bbox,
             ))
-
-    # Assemble PageData objects
-    pages = []
-    for page_num in range(page_count):
-        pages.append(PageData(
-            page_number=page_num,
-            raw_text=raw_index.get(page_num, ""),
-            text_blocks=page_texts.get(page_num, []),
-            tables=page_tables.get(page_num, []),
-        ))
-
-    return pages
 
 
 # ---------------------------------------------------------------------------

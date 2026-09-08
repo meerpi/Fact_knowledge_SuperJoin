@@ -171,8 +171,16 @@ def is_semantic_match(
         return True
 
     # Fast substring check for entity variants (e.g. 'Delhivery' in 'Delhivery Limited')
-    if kind == "entity" and (t1 in t2 or t2 in t1) and min(len(t1), len(t2)) >= 4:
+    if (t1 in t2 or t2 in t1) and min(len(t1), len(t2)) >= 4:
         return True
+
+    # Token-overlap (Jaccard) fallback (e.g. 'revenue' in 'revenue from contracts')
+    words1 = set(t1.split())
+    words2 = set(t2.split())
+    if words1 and words2:
+        overlap = len(words1 & words2)
+        if overlap > 0 and (overlap / min(len(words1), len(words2)) >= 0.8 or overlap / len(words1 | words2) >= 0.5):
+            return True
 
     sim = compute_semantic_similarity(term1, term2, kind=kind)
     return sim >= threshold
@@ -207,11 +215,20 @@ def precompute_term_matches(
             norm_ti = ti.strip().lower().replace("_", " ")
             norm_tj = tj.strip().lower().replace("_", " ")
 
+            # Check exact, substring, or token overlap
+            words_i = set(norm_ti.split())
+            words_j = set(norm_tj.split())
+            overlap = len(words_i & words_j)
+            has_token_overlap = (
+                overlap > 0
+                and (overlap / min(len(words_i), len(words_j)) >= 0.8
+                     or overlap / len(words_i | words_j) >= 0.5)
+            )
+
             if norm_ti == norm_tj or (
-                kind == "entity"
-                and (norm_ti in norm_tj or norm_tj in norm_ti)
+                (norm_ti in norm_tj or norm_tj in norm_ti)
                 and min(len(norm_ti), len(norm_tj)) >= 4
-            ):
+            ) or has_token_overlap:
                 matches[(ti, tj)] = True
                 matches[(tj, ti)] = True
                 continue
