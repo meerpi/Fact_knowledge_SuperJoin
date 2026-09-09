@@ -1,7 +1,7 @@
 # Fact Knowledge Layer: Cross-Document Verification & Reconciliation Engine
 
 **Superjoin VIT 2026 · Engineering Intern Hiring Assignment**  
-GitHub Repository: https://github.com/meerpi/SuperJoin_assignment
+GitHub Repository: https://github.com/meerpi/Fact_knowledge_SuperJoin
 
 ---
 
@@ -30,8 +30,8 @@ The system isn't hardcoded to these documents. You can upload new PDFs through t
 
 ```bash
 # 1. Clone repository
-git clone git@github.com:meerpi/SuperJoin_assignment.git
-cd SuperJoin_assignment
+git clone git@github.com:meerpi/Fact_knowledge_SuperJoin.git
+cd Fact_knowledge_SuperJoin
 
 # 2. Set up Python environment & dependencies
 python3 -m venv .venv
