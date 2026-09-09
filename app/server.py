@@ -7,7 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -68,8 +68,50 @@ def _sync_from_storage():
 _sync_from_storage()
 
 
+# In-memory parse job registry
+parse_jobs: dict[str, dict] = {}
+
+
+def _run_parse_job(job_id: str, filepath: Path):
+    job = parse_jobs[job_id]
+    t0 = time.time()
+
+    def on_progress(cur: int, total: int, msg: str):
+        job["current_page"] = cur
+        job["total_pages"] = total
+        job["progress_percent"] = min(100, int((cur / max(total, 1)) * 100))
+        job["current_step"] = msg
+        job["elapsed_seconds"] = round(time.time() - t0, 1)
+
+    try:
+        doc = parse_pdf(filepath, progress_callback=on_progress)
+        storage.save_document(doc)
+        documents[doc.doc_id] = doc
+
+        job["document"] = {
+            "doc_id": doc.doc_id,
+            "filename": doc.filename,
+            "page_count": doc.page_count,
+            "text_blocks": sum(len(p.text_blocks) for p in doc.pages),
+            "tables": sum(len(p.tables) for p in doc.pages),
+            "scanned_pages": doc.scanned_pages,
+            "warnings": doc.warnings,
+        }
+        job["status"] = "completed"
+        job["progress_percent"] = 100
+        job["current_step"] = f"Parsed {doc.page_count} pages successfully"
+        job["elapsed_seconds"] = round(time.time() - t0, 1)
+    except Exception as exc:
+        job["status"] = "failed"
+        job["error"] = str(exc)
+        job["elapsed_seconds"] = round(time.time() - t0, 1)
+
+
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(
+    file: UploadFile = File(...),
+    background: bool = Query(False, alias="async"),
+):
     """Upload a PDF, parse it, and store the structured result in SQLite."""
     if not file.filename:
         raise HTTPException(400, "Filename is missing")
@@ -84,7 +126,40 @@ async def upload_pdf(file: UploadFile = File(...)):
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Parse
+    if background:
+        import pymupdf
+        try:
+            with pymupdf.open(str(dest)) as p_doc:
+                est_pages = len(p_doc)
+        except Exception:
+            est_pages = 1
+
+        job_id = str(uuid.uuid4())[:8]
+        t_start = time.time()
+        parse_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "running",
+            "start_time": t_start,
+            "filename": safe_filename,
+            "current_page": 0,
+            "total_pages": est_pages,
+            "progress_percent": 0,
+            "current_step": f"Uploaded {safe_filename}. Initializing layout parser...",
+            "elapsed_seconds": 0.0,
+            "error": None,
+            "document": None,
+        }
+
+        asyncio.get_running_loop().run_in_executor(None, _run_parse_job, job_id, dest)
+
+        return {
+            "job_id": job_id,
+            "status": "running",
+            "filename": safe_filename,
+            "total_pages": est_pages,
+        }
+
+    # Synchronous parse
     try:
         doc = parse_pdf(dest)
     except Exception as e:
@@ -105,10 +180,100 @@ async def upload_pdf(file: UploadFile = File(...)):
     }
 
 
+@app.get("/upload/status/{job_id}")
+async def get_upload_status(job_id: str):
+    """Poll PDF parsing progress and status."""
+    job = parse_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Upload job '{job_id}' not found")
+    if job.get("status") == "running":
+        start_t = job.get("start_time")
+        if start_t is None:
+            start_t = time.time() - job.get("elapsed_seconds", 0.0)
+            job["start_time"] = start_t
+        job["elapsed_seconds"] = round(time.time() - start_t, 1)
+    return job
+
+
+@app.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str):
+    """Delete a document, cascade all extracted facts, and remove physical file."""
+    doc = storage.get_document(doc_id) or documents.get(doc_id)
+    filename = doc.filename if doc else None
+
+    deleted = storage.delete_document(doc_id)
+    documents.pop(doc_id, None)
+    extracted_facts_db.pop(doc_id, None)
+    contradiction_reports_db.pop(doc_id, None)
+
+    if filename:
+        filepath = UPLOAD_DIR / filename
+        if filepath.exists():
+            try:
+                filepath.unlink()
+            except Exception as e:
+                logger.warning("Failed to delete file %s: %s", filepath, e)
+
+    # Clean up latest graph if no docs remain
+    remaining = storage.list_documents()
+    if not remaining:
+        reconciliation_db.clear()
+        conn = storage._get_connection()
+        with conn:
+            conn.execute("DELETE FROM claim_graphs;")
+
+    if not deleted and not doc:
+        raise HTTPException(404, f"Document '{doc_id}' not found")
+
+    return {"deleted": True, "doc_id": doc_id}
+
+
+@app.delete("/documents")
+async def clear_all_documents():
+    """Clear all documents, extracted facts, and reconciliation results."""
+    count = storage.clear_all_documents()
+    documents.clear()
+    extracted_facts_db.clear()
+    contradiction_reports_db.clear()
+    reconciliation_db.clear()
+
+    # Clean uploads directory
+    for f in UPLOAD_DIR.glob("*.pdf"):
+        try:
+            f.unlink()
+        except Exception as e:
+            logger.warning("Failed to remove %s: %s", f, e)
+
+    return {"deleted_count": count, "message": "All documents and analysis records cleared"}
+
+
+@app.delete("/documents/{doc_id}/facts")
+async def delete_document_facts(doc_id: str):
+    """Delete extracted facts for a document from SQLite and in-memory cache,
+    allowing re-extraction without deleting the uploaded PDF document itself."""
+    deleted = storage.delete_extracted_facts(doc_id)
+    extracted_facts_db.pop(doc_id, None)
+    return {"deleted": deleted, "doc_id": doc_id, "message": f"Extracted facts for '{doc_id}' cleared"}
+
+
+@app.delete("/facts")
+async def clear_all_facts():
+    """Clear all extracted facts across all documents from SQLite and in-memory cache."""
+    count = storage.clear_all_extracted_facts()
+    extracted_facts_db.clear()
+    return {"deleted_count": count, "message": f"Cleared {count} extracted fact record(s)"}
+
+
 @app.get("/documents")
 async def list_documents():
     """List all uploaded documents."""
-    return storage.list_documents()
+    docs = storage.list_documents()
+    for d in docs:
+        if not d.get("has_extracted_facts"):
+            d["has_extracted_facts"] = (
+                d["doc_id"] in extracted_facts_db and len(extracted_facts_db[d["doc_id"]].facts) > 0
+            )
+    return docs
 
 
 @app.get("/documents/{doc_id}")
@@ -624,6 +789,7 @@ class PipelineStartRequest(BaseModel):
     doc_ids: list[str] | None = None
     target_pages: dict[str, list[int]] | None = None
     nli_threshold: float = 0.7
+    force_reextract: bool = False
 
 
 async def _run_pipeline_job(
@@ -631,12 +797,32 @@ async def _run_pipeline_job(
     doc_ids: list[str],
     target_pages_map: dict[str, list[int]] | None,
     nli_threshold: float,
+    force_reextract: bool = False,
 ):
     job = pipeline_jobs[job_id]
-    t0 = time.time()
+    t0 = job.get("start_time") or time.time()
+    job["start_time"] = t0
     try:
         extractor = GeminiFactExtractor()
         total_facts = 0
+
+        # Calculate exact total pages across all target documents
+        total_pages_all_docs = 0
+        doc_page_counts: dict[str, int] = {}
+        for d_id in doc_ids:
+            d = documents.get(d_id) or storage.get_document(d_id)
+            if d:
+                pgs = len(target_pages_map[d_id]) if (target_pages_map and d_id in target_pages_map) else d.page_count
+                doc_page_counts[d_id] = pgs
+                total_pages_all_docs += pgs
+        if total_pages_all_docs == 0:
+            total_pages_all_docs = 1
+
+        job["total_pages"] = total_pages_all_docs
+        job["current_page"] = 0
+        job["progress_percent"] = 0
+
+        pages_completed_so_far = 0
 
         for idx, d_id in enumerate(doc_ids):
             doc = documents.get(d_id) or storage.get_document(d_id)
@@ -644,14 +830,45 @@ async def _run_pipeline_job(
                 continue
             job["current_doc_name"] = doc.filename
             job["current_doc_index"] = idx + 1
+            doc_pgs = doc_page_counts.get(d_id, doc.page_count)
+            pages = target_pages_map.get(d_id) if target_pages_map else None
+
+            # SQLite Caching: check if facts already exist in SQLite
+            cached_ef = None if force_reextract else (extracted_facts_db.get(d_id) or storage.get_extracted_facts(d_id))
+            if cached_ef and len(cached_ef.facts) > 0 and pages is None:
+                extracted_facts_db[d_id] = cached_ef
+                total_facts += len(cached_ef.facts)
+                pages_completed_so_far += doc_pgs
+                job["current_page"] = pages_completed_so_far
+                job["progress_percent"] = min(85, int((pages_completed_so_far / total_pages_all_docs) * 85))
+                job["facts_extracted_so_far"] = total_facts
+                job["elapsed_seconds"] = round(time.time() - t0, 1)
+                job["stages_completed"].append(
+                    f"Loaded {len(cached_ef.facts)} cached facts from SQLite for {doc.filename} (0.0s)"
+                )
+                continue
+
+            def _on_batch_progress(pages_in_doc_done, total_in_doc, msg):
+                cur_total = pages_completed_so_far + pages_in_doc_done
+                job["current_page"] = cur_total
+                job["progress_percent"] = min(85, max(0, int((cur_total / total_pages_all_docs) * 85)))
+                job["current_step"] = (
+                    f"Extracting facts from {doc.filename}: page {pages_in_doc_done} of {total_in_doc} "
+                    f"({job['progress_percent']}%)"
+                )
+                job["elapsed_seconds"] = round(time.time() - t0, 1)
+
             job["current_step"] = (
                 f"Extracting and verifying facts from {doc.filename} "
-                f"(Document {idx + 1} of {len(doc_ids)})..."
+                f"(Document {idx + 1} of {len(doc_ids)}, {doc_pgs} pages)..."
             )
             job["elapsed_seconds"] = round(time.time() - t0, 1)
 
-            pages = target_pages_map.get(d_id) if target_pages_map else None
-            ef = await extractor.aextract_and_verify(doc, pages=pages)
+            ef = await extractor.aextract_and_verify(doc, pages=pages, on_progress=_on_batch_progress)
+            pages_completed_so_far += doc_pgs
+            job["current_page"] = pages_completed_so_far
+            job["progress_percent"] = min(85, int((pages_completed_so_far / total_pages_all_docs) * 85))
+
             extracted_facts_db[d_id] = ef
             storage.save_extracted_facts(d_id, ef)
             total_facts += len(ef.facts)
@@ -661,6 +878,7 @@ async def _run_pipeline_job(
                 f"Extracted and grounded {len(ef.facts)} facts from {doc.filename}"
             )
 
+        job["progress_percent"] = 88
         job["current_step"] = (
             f"Running ArbGraph claim alignment across {len(doc_ids)} document(s)..."
         )
@@ -677,6 +895,9 @@ async def _run_pipeline_job(
             if d:
                 doc_filenames[d_id] = d.filename
 
+        job["progress_percent"] = 92
+        job["current_step"] = "Arbitrating cross-document relationships & contradiction verdicts..."
+
         graph = build_claim_graph(
             doc_facts=doc_facts,
             doc_filenames=doc_filenames,
@@ -686,9 +907,10 @@ async def _run_pipeline_job(
         storage.save_claim_graph(graph, "latest")
 
         job["stages_completed"].append(
-            f"Arbitrated {len(graph.clusters)} claim clusters into 4 assignment cases"
+            f"Arbitrated {len(graph.clusters)} claim clusters into cross-document ledger"
         )
-        job["current_step"] = "Analysis complete. Cases ready."
+        job["progress_percent"] = 100
+        job["current_step"] = "Analysis complete. Verification exhibit ready."
         job["status"] = "completed"
         job["elapsed_seconds"] = round(time.time() - t0, 1)
     except Exception as exc:
@@ -710,17 +932,32 @@ async def start_pipeline(req: PipelineStartRequest):
             "No documents available for analysis. Please upload at least one PDF first.",
         )
 
+    # Pre-calculate estimated pages for immediate progress display
+    est_total_pages = 0
+    for d_id in target_ids:
+        d = documents.get(d_id) or storage.get_document(d_id)
+        if d:
+            pgs = len(req.target_pages[d_id]) if (req.target_pages and d_id in req.target_pages) else d.page_count
+            est_total_pages += pgs
+    if est_total_pages == 0:
+        est_total_pages = 1
+
     job_id = str(uuid.uuid4())[:8]
+    t_start = time.time()
     pipeline_jobs[job_id] = {
         "job_id": job_id,
         "status": "running",
+        "start_time": t_start,
         "current_doc_name": "",
         "current_doc_index": 0,
         "total_docs": len(target_ids),
-        "current_step": f"Queued {len(target_ids)} document(s) for extraction...",
+        "current_step": f"Queued {len(target_ids)} document(s) ({est_total_pages} pages) for extraction...",
         "facts_extracted_so_far": 0,
         "elapsed_seconds": 0.0,
         "stages_completed": [],
+        "progress_percent": 0,
+        "current_page": 0,
+        "total_pages": est_total_pages,
         "error": None,
     }
 
@@ -730,6 +967,7 @@ async def start_pipeline(req: PipelineStartRequest):
             doc_ids=target_ids,
             target_pages_map=req.target_pages,
             nli_threshold=req.nli_threshold,
+            force_reextract=req.force_reextract,
         )
     )
 
@@ -737,6 +975,7 @@ async def start_pipeline(req: PipelineStartRequest):
         "job_id": job_id,
         "status": "running",
         "total_docs": len(target_ids),
+        "total_pages": est_total_pages,
     }
 
 
@@ -746,15 +985,21 @@ async def get_pipeline_status(job_id: str):
     job = pipeline_jobs.get(job_id)
     if not job:
         raise HTTPException(404, f"Job '{job_id}' not found")
+    if job.get("status") == "running":
+        start_t = job.get("start_time")
+        if start_t is None:
+            start_t = time.time() - job.get("elapsed_seconds", 0.0)
+            job["start_time"] = start_t
+        job["elapsed_seconds"] = round(time.time() - start_t, 1)
     return job
 
 
 @app.post("/system/seed-demo")
 async def seed_demo_dataset():
-    """Seed storage with the starter India Macroeconomy dataset for instant demonstration."""
-    results_path = Path("e2e_india_macro_results.json")
+    """Seed storage with the starter Delhivery dataset for instant demonstration."""
+    results_path = Path("delhivery_claim_graph.json")
     if not results_path.exists():
-        raise HTTPException(404, "e2e_india_macro_results.json not found")
+        raise HTTPException(404, "delhivery_claim_graph.json not found")
 
     with open(results_path, "r", encoding="utf-8") as f:
         graph_data = json.load(f)
@@ -764,16 +1009,17 @@ async def seed_demo_dataset():
     reconciliation_db["latest"] = graph
 
     # Load facts cache
-    cache_path = Path("india_macro_facts_cache.json")
+    cache_path = Path("delhivery_facts_cache.json")
     if cache_path.exists():
         with open(cache_path, "r", encoding="utf-8") as f:
             raw_cache = json.load(f)
 
         doc_facts_map: dict[str, list[Fact]] = {}
-        for key, facts_list in raw_cache.items():
+        for key, val in raw_cache.items():
             doc_id = key.split(":")[0]
             if doc_id not in doc_facts_map:
                 doc_facts_map[doc_id] = []
+            facts_list = val.get("facts", []) if isinstance(val, dict) else (val if isinstance(val, list) else [])
             for item in facts_list:
                 try:
                     doc_facts_map[doc_id].append(Fact.model_validate(item))
@@ -792,7 +1038,7 @@ async def seed_demo_dataset():
 
     # Register the 3 documents in SQLite if not already present
     from app.models import DocumentData
-    starter_dir = Path("starter-datasets/india-macroeconomy")
+    starter_dir = Path("starter-datasets/delhivery")
     for doc_id, filename in graph.documents.items():
         if not storage.get_document(doc_id):
             pdf_path = starter_dir / filename

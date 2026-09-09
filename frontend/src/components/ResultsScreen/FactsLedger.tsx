@@ -179,11 +179,6 @@ export const FactsLedger: React.FC<FactsLedgerProps> = ({
         <div>
           Showing {filteredFacts.length} of {facts.length} facts
         </div>
-        {facts.some((f) => !f.provenance.verified || f.provenance.match_type === 'unverified') && (
-          <div className="text-amber-700 dark:text-amber-400">
-            Notice: Low-confidence/unverified quotes are visibly surfaced below
-          </div>
-        )}
       </div>
 
       {/* Ledger Table */}

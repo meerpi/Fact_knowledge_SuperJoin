@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Loader2, CheckCircle2, Clock, Database, FileText } from 'lucide-react';
 import type { PipelineJobStatus } from '../../api/types';
 
@@ -7,6 +7,25 @@ interface ExtractionProgressProps {
 }
 
 export const ExtractionProgress: React.FC<ExtractionProgressProps> = ({ status }) => {
+  const currentElapsed = status?.elapsed_seconds ?? 0;
+  const isRunning = status?.status === 'running';
+
+  const [liveElapsed, setLiveElapsed] = useState<number>(currentElapsed);
+  const startTimeRef = useRef<number>(Date.now() - currentElapsed * 1000);
+
+  useEffect(() => {
+    startTimeRef.current = Date.now() - currentElapsed * 1000;
+    setLiveElapsed(currentElapsed);
+  }, [currentElapsed]);
+
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(() => {
+      setLiveElapsed(Math.max(0, (Date.now() - startTimeRef.current) / 1000));
+    }, 100);
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
   if (!status) return null;
 
   return (
@@ -23,7 +42,7 @@ export const ExtractionProgress: React.FC<ExtractionProgressProps> = ({ status }
         <div className="flex items-center gap-4 text-xs font-mono text-neutral-500">
           <div className="flex items-center gap-1">
             <Clock className="w-3.5 h-3.5 text-neutral-400" />
-            <span>{status.elapsed_seconds.toFixed(1)}s elapsed</span>
+            <span>{liveElapsed.toFixed(1)}s elapsed</span>
           </div>
           <div className="flex items-center gap-1">
             <Database className="w-3.5 h-3.5 text-neutral-400" />

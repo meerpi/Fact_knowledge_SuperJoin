@@ -19,6 +19,7 @@ import re
 import time
 from collections import Counter
 from pathlib import Path
+from typing import Any, Callable
 
 import pymupdf
 
@@ -103,12 +104,18 @@ def _get_docling_converter():
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse_pdf(filepath: str | Path) -> DocumentData:
+def parse_pdf(
+    filepath: str | Path,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> DocumentData:
     filepath = Path(filepath)
     doc_id = _make_doc_id(filepath)
 
     # Layer 1: PyMuPDF — fast raw text for quote verification + bboxes
     raw_index, page_count = _extract_raw_text_index(filepath)
+    if progress_callback:
+        progress_callback(0, page_count, f"Indexed {page_count} pages with PyMuPDF")
+
     scanned_pages = _detect_scanned_pages(raw_index)
     if scanned_pages and len(scanned_pages) == page_count:
         # Docling has OCR — try it before giving up
@@ -125,13 +132,22 @@ def parse_pdf(filepath: str | Path) -> DocumentData:
     converter = _get_docling_converter()
     if converter is not None:
         try:
-            pages = _extract_structured_pages_docling(converter, filepath, raw_index, header_footer_lines, page_count)
+            pages = _extract_structured_pages_docling(
+                converter, filepath, raw_index, header_footer_lines, page_count, progress_callback
+            )
             logger.info("PDF parsed with Docling (ML-powered layout + table recovery)")
         except Exception as e:
             logger.warning("Docling extraction failed: %s — falling back to pdfplumber", e)
-            pages = _extract_structured_pages_pdfplumber(filepath, raw_index, header_footer_lines)
+            pages = _extract_structured_pages_pdfplumber(
+                filepath, raw_index, header_footer_lines, progress_callback
+            )
     else:
-        pages = _extract_structured_pages_pdfplumber(filepath, raw_index, header_footer_lines)
+        pages = _extract_structured_pages_pdfplumber(
+            filepath, raw_index, header_footer_lines, progress_callback
+        )
+
+    if progress_callback:
+        progress_callback(page_count, page_count, "Document structure parsed successfully")
 
     warnings = []
     if scanned_pages and len(scanned_pages) < page_count:
@@ -264,6 +280,7 @@ def _extract_structured_pages_docling(
     raw_index: dict[int, str],
     hf_lines: set[str],
     page_count: int,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> list[PageData]:
     """Extract structured pages using Docling's ML-powered pipeline.
 
@@ -309,6 +326,12 @@ def _extract_structured_pages_docling(
             doc, page_tables, page_texts, page_count,
             hf_lines, batch_start,
         )
+        if progress_callback:
+            progress_callback(
+                batch_end,
+                page_count,
+                f"Parsed layout for page {batch_end} of {page_count}",
+            )
 
     dt_total = time.perf_counter() - t_total_start
     logger.info(
@@ -422,6 +445,7 @@ def _extract_structured_pages_pdfplumber(
     filepath: Path,
     raw_index: dict[int, str],
     hf_lines: set[str],
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> list[PageData]:
     """Fallback extraction using pdfplumber when Docling is unavailable."""
     try:
@@ -435,8 +459,15 @@ def _extract_structured_pages_pdfplumber(
 
     with pdfplumber.open(str(filepath)) as pdf:
         pages = []
+        total_pgs = len(pdf.pages)
         for page_num, page in enumerate(pdf.pages):
             pages.append(_process_single_page_pdfplumber(page, page_num, raw_index, hf_lines))
+            if progress_callback:
+                progress_callback(
+                    page_num + 1,
+                    total_pgs,
+                    f"Parsed page {page_num + 1} of {total_pgs}",
+                )
         return pages
 
 

@@ -4,6 +4,7 @@ import type { Fact } from '../../api/types';
 import { VerificationBadge } from '../common/VerificationBadge';
 import { TextHighlight } from '../common/TextHighlight';
 import { formatMetricName, formatValue, formatCanonical } from '../../utils/formatters';
+import { InlinePdfViewer } from './InlinePdfViewer';
 
 interface FactDetailModalProps {
   fact: Fact | null;
@@ -120,13 +121,27 @@ export const FactDetailModal: React.FC<FactDetailModalProps> = ({
               )}
             </div>
 
-            <div className="p-3 bg-neutral-50 dark:bg-neutral-850 border border-neutral-200 dark:border-neutral-800 text-xs">
+            <div className="p-3 bg-neutral-50 dark:bg-neutral-850 border border-neutral-200 dark:border-neutral-800 text-xs mb-3">
               <TextHighlight
                 text={fact.provenance.evidence_quote}
                 highlight={fact.value}
                 type="corroborate"
               />
             </div>
+
+            {/* Inbuilt PDF Page Exhibit */}
+            {fact.provenance.page !== null && fact.provenance.page !== undefined && (
+              <div className="mt-2">
+                <InlinePdfViewer
+                  docId={fact.provenance.doc_id}
+                  pageNum={fact.provenance.page}
+                  docFilename={docFilename}
+                  highlightQuote={fact.provenance.evidence_quote}
+                  highlightValue={fact.value}
+                  maxHeight="320px"
+                />
+              </div>
+            )}
           </div>
 
           {/* Verification Audit */}

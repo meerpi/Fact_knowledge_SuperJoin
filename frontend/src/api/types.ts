@@ -163,6 +163,7 @@ export interface DocumentListItem {
   tables?: number;
   scanned_pages?: number[];
   warnings?: string[];
+  has_extracted_facts?: boolean;
 }
 
 export interface SystemCapabilities {
@@ -185,7 +186,23 @@ export interface PipelineJobStatus {
   facts_extracted_so_far: number;
   elapsed_seconds: number;
   stages_completed: string[];
+  progress_percent?: number;
+  current_page?: number;
+  total_pages?: number;
   error?: string | null;
+}
+
+export interface ParseJobStatus {
+  job_id: string;
+  status: 'running' | 'completed' | 'failed';
+  filename: string;
+  current_page: number;
+  total_pages: number;
+  progress_percent: number;
+  current_step: string;
+  elapsed_seconds: number;
+  error?: string | null;
+  document?: DocumentListItem | null;
 }
 
 export interface BoundingBox {
@@ -203,5 +220,7 @@ export interface WordBBox {
 export interface PageWordBBoxesResponse {
   doc_id: string;
   page_num: number;
+  page_width?: number;
+  page_height?: number;
   words: WordBBox[];
 }

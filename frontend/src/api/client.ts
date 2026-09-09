@@ -57,12 +57,40 @@ export const api = {
 
   getDocumentFacts: (docId: string) => request<ExtractedFacts>(`/documents/${docId}/facts`),
 
+  deleteDocument: (docId: string) =>
+    request<{ deleted: boolean; doc_id: string }>(`/documents/${docId}`, {
+      method: 'DELETE',
+    }),
+
+  clearAllDocuments: () =>
+    request<{ deleted_count: number; message: string }>('/documents', {
+      method: 'DELETE',
+    }),
+
+  deleteDocumentFacts: (docId: string) =>
+    request<{ deleted: boolean; doc_id: string; message: string }>(`/documents/${docId}/facts`, {
+      method: 'DELETE',
+    }),
+
+  clearAllFacts: () =>
+    request<{ deleted_count: number; message: string }>('/facts', {
+      method: 'DELETE',
+    }),
+
   // Pipeline
-  startPipeline: (docIds?: string[], targetPages?: Record<string, number[]>) =>
+  startPipeline: (
+    docIds?: string[],
+    targetPages?: Record<string, number[]>,
+    forceReextract?: boolean
+  ) =>
     request<{ job_id: string; status: string; total_docs: number }>('/pipeline/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc_ids: docIds, target_pages: targetPages }),
+      body: JSON.stringify({
+        doc_ids: docIds,
+        target_pages: targetPages,
+        force_reextract: forceReextract ?? false,
+      }),
     }),
 
   getPipelineStatus: (jobId: string) => request<PipelineJobStatus>(`/pipeline/status/${jobId}`),

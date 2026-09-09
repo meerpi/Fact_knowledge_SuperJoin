@@ -175,10 +175,47 @@ def _subjects_match(s1: str, s2: str) -> bool:
         return False
 
 
+def _normalize_dimension(fact: Fact) -> str:
+    """Classify the quantitative dimension of a fact (e.g. 'monetary', 'percentage', 'count', etc.)."""
+    if fact.dimension:
+        dim_str = str(fact.dimension.value if hasattr(fact.dimension, "value") else fact.dimension).lower().strip()
+        if "percent" in dim_str or dim_str == "%":
+            return "percentage"
+        if any(w in dim_str for w in ("monetary", "money", "currency", "amount")):
+            return "monetary"
+        if dim_str in ("count", "area", "ratio", "duration", "weight", "volume", "length"):
+            return dim_str
+
+    unit_str = f"{fact.canonical_unit or ''} {fact.base_unit or ''} {fact.unit or ''} {fact.value or ''}".lower()
+    if "%" in unit_str or "percent" in unit_str:
+        return "percentage"
+    if any(c in unit_str for c in ("$", "₹", "rs", "usd", "inr", "eur", "euro", "gbp", "billion", "million", "crore", "lakh")):
+        if "%" not in unit_str and "percent" not in unit_str:
+            return "monetary"
+    return "other"
+
+
+def _is_rate_or_growth(predicate: str) -> bool:
+    """Check if a predicate represents a rate, growth, ratio, or percentage change rather than an absolute level."""
+    p_clean = predicate.lower().replace("-", "_")
+    tokens = set(p_clean.split("_"))
+    return bool(tokens & {"growth", "rate", "share", "ratio", "pct", "percentage", "change"})
+
+
+def _dimensions_compatible(d1: str, d2: str) -> bool:
+    """Two dimensions are compatible for clustering if neither is incompatible (e.g. monetary vs percentage)."""
+    if d1 == "other" or d2 == "other":
+        return True
+    return d1 == d2
+
+
 def _predicates_match(p1: str, p2: str) -> bool:
     """Check if two predicates refer to the same metric."""
     if p1.lower().strip() == p2.lower().strip():
         return True
+    # A rate/growth metric (e.g. exports growth %) must never match an absolute level metric (e.g. exports level $)
+    if _is_rate_or_growth(p1) != _is_rate_or_growth(p2):
+        return False
     try:
         from app.embeddings import is_semantic_match
         return is_semantic_match(p1, p2, kind="metric", threshold=0.55)
@@ -187,21 +224,23 @@ def _predicates_match(p1: str, p2: str) -> bool:
 
 
 def _align_facts(facts: list[Fact]) -> dict[int, list[int]]:
-    """Stage 1: Group facts by (subject, predicate) using complete-linkage semantic alignment.
+    """Stage 1: Group facts by (subject, predicate, dimension) using complete-linkage semantic alignment.
 
-    Prevents transitive smearing (where A~B and B~C links unrelated metrics into a giant megacluster).
+    Prevents transitive smearing and unit/dimension mismatch (e.g. percentage growth vs dollar level).
     Returns mapping from cluster root -> list of fact indices.
     """
-    # Group by normalized (subject, predicate) — fast exact-match pass
     key_groups: dict[str, list[int]] = defaultdict(list)
+    key_dimensions: dict[str, str] = {}
     for i, fact in enumerate(facts):
-        key = f"{_normalize_subject(fact.subject)}||{fact.predicate.lower()}"
+        dim = _normalize_dimension(fact)
+        rate_flag = "rate" if _is_rate_or_growth(fact.predicate) else "level"
+        key = f"{_normalize_subject(fact.subject)}||{fact.predicate.lower()}||{dim}||{rate_flag}"
         key_groups[key].append(i)
+        key_dimensions[key] = dim
 
-    # Cross-group semantic alignment pass using Voyage AI embeddings
     sorted_keys = sorted(key_groups.keys())
-    unique_preds = list({k.split("||", 1)[1] for k in sorted_keys})
-    unique_subjs = list({k.split("||", 1)[0] for k in sorted_keys})
+    unique_preds = list({k.split("||")[1] for k in sorted_keys})
+    unique_subjs = list({k.split("||")[0] for k in sorted_keys})
 
     try:
         from app.embeddings import precompute_term_matches
@@ -212,22 +251,34 @@ def _align_facts(facts: list[Fact]) -> dict[int, list[int]]:
         pred_matches = {}
         subj_matches = {}
 
-    # Complete-linkage / Clique clustering on keys:
-    # A key k can join an existing cluster only if it is a semantic match to ALL keys in that cluster.
     clusters_of_keys: list[list[str]] = []
     for k in sorted_keys:
-        subj_k, pred_k = k.split("||", 1)
+        parts_k = k.split("||")
+        subj_k, pred_k, dim_k, rate_k = parts_k[0], parts_k[1], parts_k[2], parts_k[3]
         matched_cluster_idx = -1
 
         for c_idx, clus in enumerate(clusters_of_keys):
             can_join = True
             for existing_k in clus:
-                subj_e, pred_e = existing_k.split("||", 1)
+                parts_e = existing_k.split("||")
+                subj_e, pred_e, dim_e, rate_e = parts_e[0], parts_e[1], parts_e[2], parts_e[3]
+
+                # Dimension and rate compatibility check
+                if not _dimensions_compatible(dim_k, dim_e):
+                    can_join = False
+                    break
+                if rate_k != rate_e:
+                    can_join = False
+                    break
+
                 is_subj_match = subj_matches.get((subj_k, subj_e), _subjects_match(subj_k, subj_e))
                 if not is_subj_match:
                     can_join = False
                     break
-                is_pred_match = pred_matches.get((pred_k, pred_e), pred_k == pred_e)
+                if _is_rate_or_growth(pred_k) != _is_rate_or_growth(pred_e):
+                    can_join = False
+                    break
+                is_pred_match = pred_matches.get((pred_k, pred_e), _predicates_match(pred_k, pred_e))
                 if not is_pred_match:
                     can_join = False
                     break
@@ -459,6 +510,17 @@ def _classify_cluster(
 
     Returns (CaseType, DisputeCode) — the case classification and
     the fine-grained dispute reason code.
+
+    Verdict hierarchy (highest priority wins):
+        1. SUPERSEDES edges → RECONCILED_TEMPORAL (temporal progression)
+        2. Context-reconcilable CONTRADICTS → RECONCILED_* by dimension
+        3. Genuine CONTRADICTS (same context) → CONTRADICTED
+        4. CORROBORATES only → CORROBORATED
+
+    Critical rule: a cluster's headline verdict CANNOT be CONTRADICTED
+    if all its edges resolve to SUPERSEDES. SUPERSEDES edges prove
+    temporal progression, which overrides any co-occurring CONTRADICTS
+    edges between the same fact pairs or facts with different periods.
     """
     if len(cluster_indices) < 2:
         return CaseType.CORROBORATED, DisputeCode.AGREEMENT_EXACT.value
@@ -469,13 +531,48 @@ def _classify_cluster(
     has_corroboration = EdgeType.CORROBORATES in edge_types
     has_supersedes = EdgeType.SUPERSEDES in edge_types
 
+    # Priority 1: If ALL edges are SUPERSEDES (no contradictions at all),
+    # this is unambiguously temporal progression.
+    if has_supersedes and not has_contradiction:
+        return CaseType.RECONCILED_TEMPORAL, DisputeCode.DISPUTE_TEMPORAL_DRIFT.value
+
+    # Priority 2: Mixed SUPERSEDES + CONTRADICTS edges.
+    # SUPERSEDES edges already prove that some fact pairs differ by time period.
+    # Check whether ALL CONTRADICTS edges are also reconcilable by context.
+    # If SUPERSEDES edges dominate, the cluster is RECONCILED.
     if has_contradiction:
         contradicting_edges = [e for e in edges if e.edge_type == EdgeType.CONTRADICTS]
+        supersedes_edges = [e for e in edges if e.edge_type == EdgeType.SUPERSEDES]
+
+        # Build a set of fact-pair keys covered by SUPERSEDES edges.
+        # If a CONTRADICTS edge covers the same pair as a SUPERSEDES edge,
+        # the SUPERSEDES determination takes priority (temporal > numeric).
+        supersedes_pairs: set[tuple[int, int]] = set()
+        for se in supersedes_edges:
+            pair = (min(se.source_fact_idx, se.target_fact_idx),
+                    max(se.source_fact_idx, se.target_fact_idx))
+            supersedes_pairs.add(pair)
+
+        # Filter out CONTRADICTS edges that are already covered by SUPERSEDES
+        genuine_contradictions: list[ClaimEdge] = []
+        for e in contradicting_edges:
+            pair = (min(e.source_fact_idx, e.target_fact_idx),
+                    max(e.source_fact_idx, e.target_fact_idx))
+            if pair in supersedes_pairs:
+                continue  # SUPERSEDES takes priority for this pair
+            genuine_contradictions.append(e)
+
+        # If no genuine contradictions remain after SUPERSEDES filtering,
+        # and SUPERSEDES edges exist, this is temporal reconciliation.
+        if not genuine_contradictions and has_supersedes:
+            return CaseType.RECONCILED_TEMPORAL, DisputeCode.DISPUTE_TEMPORAL_DRIFT.value
+
+        # Attempt to reconcile remaining genuine contradictions by context
         all_reconciled = True
         reconciled_type = CaseType.CONTRADICTED
         dispute_code = DisputeCode.DISPUTE_GENUINE_CONFLICT.value
 
-        for e in contradicting_edges:
+        for e in genuine_contradictions:
             f1, f2 = facts[e.source_fact_idx], facts[e.target_fact_idx]
             t1 = normalize_temporal(f1.context.temporal)
             t2 = normalize_temporal(f2.context.temporal)
@@ -508,10 +605,14 @@ def _classify_cluster(
 
         if all_reconciled and reconciled_type != CaseType.CONTRADICTED:
             return reconciled_type, dispute_code
-        return CaseType.CONTRADICTED, dispute_code
 
-    if has_supersedes:
-        return CaseType.RECONCILED_TEMPORAL, DisputeCode.DISPUTE_TEMPORAL_DRIFT.value
+        # If SUPERSEDES edges dominate the cluster (more SUPERSEDES than
+        # genuine contradictions), default to RECONCILED_TEMPORAL rather
+        # than letting a handful of un-reconcilable edges override.
+        if has_supersedes and len(supersedes_edges) > len(genuine_contradictions):
+            return CaseType.RECONCILED_TEMPORAL, DisputeCode.DISPUTE_TEMPORAL_DRIFT.value
+
+        return CaseType.CONTRADICTED, dispute_code
 
     # All corroborated — check if exact or approximate
     corr_edges = [e for e in edges if e.edge_type == EdgeType.CORROBORATES]
@@ -571,19 +672,44 @@ def _generate_explanation(
         )
 
     elif case_type == CaseType.CONTRADICTED:
-        # Find the contradiction edge
+        # Find contradiction edges, prioritizing cross-document contradictions
         contra_edges = [e for e in edges if e.edge_type == EdgeType.CONTRADICTS]
+        cross_doc_edges = [
+            e for e in contra_edges
+            if facts[e.source_fact_idx].provenance.doc_id != facts[e.target_fact_idx].provenance.doc_id
+        ]
+        same_doc_edges = [
+            e for e in contra_edges
+            if facts[e.source_fact_idx].provenance.doc_id == facts[e.target_fact_idx].provenance.doc_id
+        ]
+        display_edges = (cross_doc_edges + same_doc_edges)[:3]
+
         parts = []
-        for e in contra_edges[:3]:  # limit to 3 examples
+        for e in display_edges:
             fi, fj = facts[e.source_fact_idx], facts[e.target_fact_idx]
             fi_doc = doc_filenames.get(fi.provenance.doc_id, fi.provenance.doc_id)[:30]
             fj_doc = doc_filenames.get(fj.provenance.doc_id, fj.provenance.doc_id)[:30]
-            parts.append(
-                f"{fi_doc} (p.{fi.provenance.page}) states '{fi.value}' "
-                f"but {fj_doc} (p.{fj.provenance.page}) states '{fj.value}'"
-            )
-        # Identify most credible
-        best_idx = max(cluster_indices, key=lambda i: credibility.get(i, 0))
+            if fi.provenance.doc_id == fj.provenance.doc_id:
+                # Same document — make it explicit, don't repeat the filename
+                page_info = f"p.{fj.provenance.page}" if fi.provenance.page != fj.provenance.page else "different table row/entry"
+                parts.append(
+                    f"{fi_doc} (p.{fi.provenance.page}) states '{fi.value}' "
+                    f"but the same document ({page_info}) states '{fj.value}'"
+                )
+            else:
+                parts.append(
+                    f"{fi_doc} (p.{fi.provenance.page}) states '{fi.value}' "
+                    f"but {fj_doc} (p.{fj.provenance.page}) states '{fj.value}'"
+                )
+        # Identify most credible fact, prioritizing dominant cluster dimension
+        dims = [_normalize_dimension(facts[i]) for i in cluster_indices]
+        from collections import Counter
+        dim_counts = Counter(dims)
+        dominant_dim = dim_counts.most_common(1)[0][0] if dim_counts else "other"
+        candidate_indices = [i for i in cluster_indices if _normalize_dimension(facts[i]) == dominant_dim]
+        if not candidate_indices:
+            candidate_indices = cluster_indices
+        best_idx = max(candidate_indices, key=lambda i: credibility.get(i, 0))
         best_fact = facts[best_idx]
         return (
             f"GENUINE CONTRADICTION: '{subject}' / '{predicate}' has conflicting values "
@@ -711,7 +837,8 @@ def _detect_extraction_failures(
                 ))
 
         # 3. Monetary fact with scale=0 (likely missed table header)
-        if (f.dimension and f.dimension.value == "monetary"
+        dim_str = str(f.dimension.value if hasattr(f.dimension, "value") else f.dimension or "")
+        if (dim_str == "monetary"
                 and f.scale == 0 and f.numeric_value is not None
                 and abs(f.numeric_value) > 100):
             failures.append(ExtractionFailure(
@@ -895,7 +1022,8 @@ def build_claim_graph(
     # --- Build case summary ---
     case_summary: dict[str, int] = defaultdict(int)
     for c in clusters:
-        case_summary[c.case_type.value] += 1
+        ct_key = c.case_type.value if hasattr(c.case_type, "value") else str(c.case_type)
+        case_summary[ct_key] += 1
     if failures:
         case_summary[CaseType.EXTRACTION_FAILURE.value] = len(failures)
 
@@ -1124,7 +1252,8 @@ def append_document_to_claim_graph(
 
     case_summary: dict[str, int] = defaultdict(int)
     for c in existing_clusters:
-        case_summary[c.case_type.value] += 1
+        ct_key = c.case_type.value if hasattr(c.case_type, "value") else str(c.case_type)
+        case_summary[ct_key] += 1
     if all_failures:
         case_summary[CaseType.EXTRACTION_FAILURE.value] = len(all_failures)
 

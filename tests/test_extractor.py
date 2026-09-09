@@ -190,6 +190,34 @@ class TestGeminiFactExtractor(unittest.TestCase):
         self.assertEqual(mock_client.models.generate_content.call_count, 2)
         self.assertEqual(len(result.facts), 2)
 
+    def test_circuit_breaker_bypasses_failed_model(self):
+        extractor = GeminiFactExtractor(
+            api_key="test_key",
+            model_cascade=["model-a", "model-b"],
+            client=MagicMock(),
+        )
+        self.assertTrue(extractor.is_model_available("model-a"))
+        extractor.trip_circuit_breaker("model-a", duration=100.0)
+        self.assertFalse(extractor.is_model_available("model-a"))
+        self.assertTrue(extractor.is_model_available("model-b"))
+
+    def test_semantic_batches_layout_continuity(self):
+        from app.models import TableBlock
+        # Create a 6-page doc where pages 1 and 2 have tables (continuation)
+        pages = [
+            PageData(page_number=0, raw_text="Short title page", text_blocks=[], tables=[]),
+            PageData(page_number=1, raw_text="P1 text", text_blocks=[], tables=[TableBlock(headers=["ColA"], rows=[["Val1"]], page=1)]),
+            PageData(page_number=2, raw_text="P2 text", text_blocks=[], tables=[TableBlock(headers=["ColA"], rows=[["Val2"]], page=2)]),
+            PageData(page_number=3, raw_text="P3 narrative " * 100, text_blocks=[], tables=[]),
+            PageData(page_number=4, raw_text="P4 narrative " * 100, text_blocks=[], tables=[]),
+            PageData(page_number=5, raw_text="P5 narrative " * 100, text_blocks=[], tables=[]),
+        ]
+        doc = DocumentData(doc_id="d_sem", filename="f.pdf", page_count=6, pages=pages)
+        batches = GeminiFactExtractor._create_semantic_batches(doc, list(range(6)), target_tokens=300, max_pages_per_batch=4)
+        # Pages 1 and 2 should stay together due to table continuation
+        found_together = any(1 in b and 2 in b for b in batches)
+        self.assertTrue(found_together)
+
 
 if __name__ == "__main__":
     unittest.main()

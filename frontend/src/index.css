@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.never-dark-mode, .never-dark-mode *));
+
+:root, html, body {
+  color-scheme: light !important;
+  background-color: #fafafa !important;
+  color: #171717 !important;
+}
+
 @layer base {
   :root {
     --bg-surface: #fafafa;

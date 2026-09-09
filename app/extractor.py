@@ -1,8 +1,10 @@
 import asyncio
 import logging
 import os
+import re
 import threading
 import time
+from typing import Callable, Any
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
@@ -30,14 +32,20 @@ from app.pdf_parser import chunk_document, verify_quote
 logger = logging.getLogger(__name__)
 
 # Fallback sequence: best reasoning / complex layout at top down to lowest latency / cost
+# Fallback sequence: high-availability production models first, down to lite models
 DEFAULT_MODEL_CASCADE = [
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3-flash-preview",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
 ]
+
+# Circuit breaker cooldown duration for high demand (503) or rate limits (429)
+_CIRCUIT_COOLDOWN_SECONDS = 300.0  # 5 minutes cooldown
 
 EXTRACTION_SYSTEM_PROMPT = """You are a high-precision financial and numerical fact extraction engine.
 Your task is to decompose text into atomic assertions with structured unit/scale classification (following the iXBRL standard).
@@ -68,7 +76,14 @@ IMPORTANT scale examples:
 - Table header says '₹ in crore': scale=7
 - A value like '2.62 million square feet': scale=6, base_unit='square feet'
 - A standalone count like '12,764 PIN codes': scale=0, base_unit='PIN codes'
-- A percentage like '14.5%': scale=0, base_unit='%', dimension='percentage'"""
+- A percentage like '14.5%': scale=0, base_unit='%', dimension='percentage'
+
+IMPORTANT table multi-indicator guidance:
+- When a table contains multiple indicators (e.g., Level/Amount in USD/INR vs Annual Growth in % vs Share of GDP in %):
+  * Disambiguate each row's predicate and dimension explicitly.
+  * Never name a growth-rate row with the base metric predicate (e.g., use 'merchandise_exports_annual_growth' for growth rate, NOT 'merchandise_exports').
+  * An absolute level is ALWAYS dimension='monetary' (or 'count'). A growth rate is ALWAYS dimension='percentage' with base_unit='%'.
+  * Never merge or confuse level values with growth-rate percentages."""
 
 
 def _calculate_confidence(verified: bool, match_type: str) -> float:
@@ -108,18 +123,20 @@ class RateLimiter:
 
 
 class AsyncRateLimiter:
-    """Async-compatible rate limiter using asyncio.Lock.
-    Ensures minimum interval between API calls in async context.
+    """Token-bucket async rate limiter allowing concurrent bursts up to capacity
+    while enforcing sustainable average requests per minute (RPM).
     """
 
-    def __init__(self, min_interval_seconds: float = 4.2):
+    def __init__(self, min_interval_seconds: float = 4.2, capacity: int = 5):
         self.min_interval = min_interval_seconds
-        self.last_call_time = 0.0
+        self.fill_rate = (1.0 / max(min_interval_seconds, 0.01)) if min_interval_seconds > 0 else 100.0
+        self.capacity = float(capacity)
+        self.tokens = float(capacity)
+        self.last_update = time.time()
         self._lock: asyncio.Lock | None = None
 
     @property
     def lock(self) -> asyncio.Lock:
-        # Lazy init to avoid binding to wrong event loop
         if self._lock is None:
             self._lock = asyncio.Lock()
         return self._lock
@@ -128,13 +145,22 @@ class AsyncRateLimiter:
         if self.min_interval <= 0:
             return
 
+        sleep_time = 0.0
         async with self.lock:
             now = time.time()
-            elapsed = now - self.last_call_time
-            if elapsed < self.min_interval:
-                sleep_time = self.min_interval - elapsed
-                await asyncio.sleep(sleep_time)
-            self.last_call_time = time.time()
+            elapsed = now - self.last_update
+            self.last_update = now
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.fill_rate)
+
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
+            else:
+                needed = 1.0 - self.tokens
+                sleep_time = needed / self.fill_rate
+                self.tokens = 0.0
+
+        if sleep_time > 0:
+            await asyncio.sleep(sleep_time)
 
 
 class GeminiFactExtractor:
@@ -151,9 +177,6 @@ class GeminiFactExtractor:
             or os.environ.get("GEMINI_API_KEY")
             or os.environ.get("GOOGLE_API_KEY")
         )
-        self.model_cascade = model_cascade or list(DEFAULT_MODEL_CASCADE)
-        self.max_concurrent = max_concurrent
-
         if client is not None:
             self.client = client
             self._is_real_client = isinstance(client, genai.Client)
@@ -167,12 +190,74 @@ class GeminiFactExtractor:
             self.client = None
             self._is_real_client = False
 
+        self.model_cascade = list(model_cascade) if model_cascade else self._discover_models()
+        self.max_concurrent = max_concurrent
+
         self.rate_limiter = RateLimiter(min_interval_seconds=min_request_interval)
         self.async_rate_limiter = AsyncRateLimiter(min_interval_seconds=min_request_interval)
+
+        # Instance-level circuit breaker: {model_name: cooldown_timestamp}
+        self._circuit_breaker: dict[str, float] = {}
 
         # Context cache for the system prompt (lazily created)
         self._context_cache_name: str | None = None
         self._context_cache_model: str | None = None
+
+    def _discover_models(self) -> list[str]:
+        """Dynamically discover available text models from the Gemini API at runtime.
+        Adapts dynamically to model updates and regional availability without hardcoding.
+        """
+        if not self.client or not self._is_real_client:
+            return list(DEFAULT_MODEL_CASCADE)
+
+        try:
+            excluded = ("tts", "audio", "image", "embedding", "robotics", "computer-use", "live", "transcribe", "customtools")
+            flash_models: list[str] = []
+            other_models: list[str] = []
+            for m in self.client.models.list():
+                clean_name = getattr(m, "name", "").replace("models/", "")
+                if not clean_name or any(kw in clean_name.lower() for kw in excluded):
+                    continue
+                if "flash" in clean_name.lower():
+                    flash_models.append(clean_name)
+                elif "gemini" in clean_name.lower():
+                    other_models.append(clean_name)
+
+            flash_models.sort(reverse=True)
+            other_models.sort(reverse=True)
+            discovered = flash_models + other_models
+            if discovered:
+                logger.info("Dynamically discovered %d Gemini models: %s", len(discovered), discovered[:4])
+                return discovered
+        except Exception as e:
+            logger.debug("Dynamic Gemini model discovery skipped (%s)", e)
+
+        return list(DEFAULT_MODEL_CASCADE)
+
+    def is_model_available(self, model_name: str) -> bool:
+        """Check if model is currently healthy or in circuit-breaker cooldown."""
+        cooldown = self._circuit_breaker.get(model_name, 0.0)
+        return time.time() >= cooldown
+
+    def trip_circuit_breaker(
+        self,
+        model_name: str,
+        duration: float = _CIRCUIT_COOLDOWN_SECONDS,
+        err_msg: str = "",
+    ) -> None:
+        """Trip circuit breaker to temporarily bypass failing/congested model.
+        Dynamically extracts exact retry-after duration if reported by the API.
+        """
+        if err_msg:
+            m = re.search(r"retry in (\d+(?:\.\d+)?)s", err_msg, re.IGNORECASE)
+            if m:
+                duration = max(5.0, float(m.group(1)) + 1.0)
+            elif "404" in err_msg or "not found" in err_msg.lower():
+                duration = 3600.0  # 1 hour cooldown for deprecated endpoints
+            elif "503" in err_msg:
+                duration = 60.0    # 1 minute cooldown for temporary high demand
+        self._circuit_breaker[model_name] = time.time() + duration
+        logger.warning("Circuit breaker tripped for model '%s' (cooling down for %.1fs)", model_name, duration)
 
     # ------------------------------------------------------------------
     # Context Caching: cache the system prompt to avoid re-processing
@@ -252,8 +337,11 @@ class GeminiFactExtractor:
                 "Get a free API key at https://aistudio.google.com/apikey and set it via export GEMINI_API_KEY=..."
             )
 
+        available_models = [m for m in self.model_cascade if self.is_model_available(m)]
+        models_to_try = available_models if available_models else self.model_cascade
+
         failures = []
-        for attempt, model_name in enumerate(self.model_cascade):
+        for attempt, model_name in enumerate(models_to_try):
             try:
                 config = self._build_config(model_name)
                 self.rate_limiter.wait()
@@ -273,6 +361,8 @@ class GeminiFactExtractor:
             except errors.APIError as e:
                 logger.warning("Gemini model '%s' failed (HTTP %s): %s. Falling back.", model_name, e.code, e.message)
                 failures.append(f"{model_name} (HTTP {e.code}): {e.message}")
+                if e.code in (404, 429, 503):
+                    self.trip_circuit_breaker(model_name, err_msg=e.message or str(e))
                 # If context cache caused the error, invalidate it
                 if e.code in (400, 404) and self._context_cache_name:
                     self._context_cache_name = None
@@ -309,14 +399,19 @@ class GeminiFactExtractor:
 
     async def _async_call_with_fallback(self, prompt: str) -> tuple[RawFactExtraction, str, int]:
         """Async version of _call_model_with_fallback with model cascade."""
+        available_models = [m for m in self.model_cascade if self.is_model_available(m)]
+        models_to_try = available_models if available_models else self.model_cascade
+
         failures = []
-        for attempt, model_name in enumerate(self.model_cascade):
+        for attempt, model_name in enumerate(models_to_try):
             try:
                 extracted, used_model = await self._async_call_model(prompt, model_name)
                 return extracted, used_model, attempt
             except errors.APIError as e:
                 logger.warning("Async: model '%s' failed (HTTP %s): %s", model_name, e.code, e.message)
                 failures.append(f"{model_name} (HTTP {e.code}): {e.message}")
+                if e.code in (404, 429, 503):
+                    self.trip_circuit_breaker(model_name, err_msg=e.message or str(e))
                 if e.code in (400, 404) and self._context_cache_name:
                     self._context_cache_name = None
                     self._context_cache_model = None
@@ -339,11 +434,18 @@ class GeminiFactExtractor:
                 continue
             page = doc.pages[p]
             text = page.raw_text
-            if not text.strip() and page.tables:
-                text = "\n".join(
+            if page.tables:
+                table_md_blocks = [
                     " | ".join(t.headers) + "\n" + "\n".join(" | ".join(row) for row in t.rows)
                     for t in page.tables
-                )
+                    if t.headers or t.rows
+                ]
+                if table_md_blocks:
+                    tables_text = "\n\n".join(table_md_blocks)
+                    if not text.strip():
+                        text = tables_text
+                    else:
+                        text = text + "\n\n[Structured Tables from Document Layout]:\n" + tables_text
             if text.strip():
                 sections.append(f"=== Page {p} ===\n{text}\n=== End of Page {p} ===")
 
@@ -376,30 +478,37 @@ class GeminiFactExtractor:
         self,
         doc: DocumentData,
         page_batches: list[list[int]],
+        on_progress: Callable[[int, int, str], None] | None = None,
     ) -> list[tuple[list[tuple[RawFactItem, int | None]], str, int]]:
-        """Extract all page batches concurrently with bounded parallelism."""
+        """Extract all page batches concurrently with bounded parallelism and progress reporting."""
         semaphore = asyncio.Semaphore(self.max_concurrent)
+        total_pages = sum(len(b) for b in page_batches)
+        pages_done = 0
 
-        tasks = [
-            self._async_extract_page_batch(doc, batch, semaphore)
-            for batch in page_batches
-        ]
-
-        t_start = time.time()
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        duration = time.time() - t_start
-
-        # Separate successes from failures
-        successful = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
+        async def _run_batch(idx: int, batch: list[int]):
+            nonlocal pages_done
+            try:
+                res = await self._async_extract_page_batch(doc, batch, semaphore)
+                pages_done += len(batch)
+                if on_progress:
+                    on_progress(pages_done, total_pages, f"Extracted batch {idx + 1} of {len(page_batches)}")
+                return idx, res
+            except Exception as e:
                 logger.error(
                     "Async batch %d (pages %s) failed: %s",
-                    i, page_batches[i], result,
+                    idx, batch, e,
                 )
-                successful.append(([], "", 0))
-            else:
-                successful.append(result)
+                pages_done += len(batch)
+                if on_progress:
+                    on_progress(pages_done, total_pages, f"Batch {idx + 1} completed with error")
+                return idx, ([], "", 0)
+
+        t_start = time.time()
+        tasks = [_run_batch(i, b) for i, b in enumerate(page_batches)]
+        results_with_idx = await asyncio.gather(*tasks)
+        results_with_idx.sort(key=lambda x: x[0])
+        successful = [r[1] for r in results_with_idx]
+        duration = time.time() - t_start
 
         logger.info(
             "Async extraction: %d batches completed in %.1fs (%.1fx faster than sequential estimate of %.1fs)",
@@ -571,12 +680,70 @@ class GeminiFactExtractor:
 
         return structured_facts
 
+    @staticmethod
+    def _create_semantic_batches(
+        doc: DocumentData,
+        requested_pages: list[int],
+        target_tokens: int = 4500,
+        max_pages_per_batch: int = 8,
+    ) -> list[list[int]]:
+        """Create adaptive layout-aware batches respecting table boundaries and token budgets.
+
+        Instead of fixed N-page slicing which cuts multi-page tables and notes in half,
+        this groups contiguous pages up to target_tokens (~4,500) while keeping multi-page
+        tables together.
+        """
+        if not requested_pages:
+            return []
+
+        batches: list[list[int]] = []
+        current_batch: list[int] = []
+        current_tokens = 0
+
+        for idx, p in enumerate(requested_pages):
+            if p < 0 or p >= doc.page_count or p >= len(doc.pages):
+                continue
+
+            page = doc.pages[p]
+            text_tokens = len(page.raw_text) // 4
+            table_tokens = sum(
+                (len(" ".join(t.headers)) + sum(len(" ".join(r)) for r in t.rows)) // 4
+                for t in page.tables
+            )
+            page_tokens = max(50, text_tokens + table_tokens)
+
+            next_p = requested_pages[idx + 1] if idx + 1 < len(requested_pages) else None
+            has_table = bool(page.tables)
+            next_has_table = bool(doc.pages[next_p].tables) if (next_p is not None and next_p < len(doc.pages)) else False
+            table_continuation = has_table and next_has_table
+
+            tokens_exceeded = (current_tokens + page_tokens) > target_tokens
+            pages_exceeded = len(current_batch) >= max_pages_per_batch
+
+            if current_batch and (tokens_exceeded or pages_exceeded):
+                if table_continuation and len(current_batch) < (max_pages_per_batch + 2) and (current_tokens + page_tokens) < (target_tokens * 1.3):
+                    current_batch.append(p)
+                    current_tokens += page_tokens
+                else:
+                    batches.append(current_batch)
+                    current_batch = [p]
+                    current_tokens = page_tokens
+            else:
+                current_batch.append(p)
+                current_tokens += page_tokens
+
+        if current_batch:
+            batches.append(current_batch)
+
+        return batches if batches else [requested_pages]
+
     async def aextract_and_verify(
         self,
         doc: DocumentData,
         page_num: int | None = None,
         pages: list[int] | None = None,
         batch_size: int = 4,
+        on_progress: Callable[[int, int, str], None] | None = None,
     ) -> ExtractedFacts:
         """Asynchronously extract and verify facts, running concurrently without blocking the event loop."""
         raw_items_with_page: list[tuple[RawFactItem, int | None]] = []
@@ -590,10 +757,16 @@ class GeminiFactExtractor:
             page_batches = [[page_num]]
         elif pages is not None:
             requested_pages = pages
-            page_batches = [pages[i:i + batch_size] for i in range(0, len(pages), batch_size)]
+            if batch_size != 4:
+                page_batches = [pages[i:i + batch_size] for i in range(0, len(pages), batch_size)]
+            else:
+                page_batches = self._create_semantic_batches(doc, pages)
         else:
             requested_pages = list(range(doc.page_count))
-            page_batches = [requested_pages[i:i + batch_size] for i in range(0, len(requested_pages), batch_size)]
+            if batch_size != 4:
+                page_batches = [requested_pages[i:i + batch_size] for i in range(0, len(requested_pages), batch_size)]
+            else:
+                page_batches = self._create_semantic_batches(doc, requested_pages)
 
         # Track skipped/empty pages for transparency and observability
         skipped_pages: list[int] = []
@@ -617,7 +790,7 @@ class GeminiFactExtractor:
                 len(page_batches), self.max_concurrent,
             )
             try:
-                results = await self._async_extract_all_batches(doc, page_batches)
+                results = await self._async_extract_all_batches(doc, page_batches, on_progress=on_progress)
                 for items_with_page, m_used, attempts in results:
                     if not model_used and m_used:
                         model_used = m_used
@@ -629,12 +802,17 @@ class GeminiFactExtractor:
                 raw_items_with_page = []
 
         if not use_parallel:
+            pages_done = 0
+            total_req_pages = len(requested_pages)
             for batch in page_batches:
                 items_with_page, m_used, attempts = self._extract_page_batch(doc, batch)
                 if not model_used:
                     model_used = m_used
                 total_attempts = max(total_attempts, attempts)
                 raw_items_with_page.extend(items_with_page)
+                pages_done += len(batch)
+                if on_progress:
+                    on_progress(pages_done, total_req_pages, f"Extracted {pages_done} of {total_req_pages} pages")
 
         structured_facts = self._ground_facts(doc, raw_items_with_page, page_num)
 

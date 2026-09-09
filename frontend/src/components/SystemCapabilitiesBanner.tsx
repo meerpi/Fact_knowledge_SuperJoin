@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import type { SystemCapabilities } from '../api/types';
 
 interface SystemCapabilitiesBannerProps {
@@ -32,16 +32,9 @@ export const SystemCapabilitiesBanner: React.FC<SystemCapabilitiesBannerProps> =
     degradedItems.push('DeBERTa-v3 NLI offline: qualitative claim NLI stage skipped');
   }
 
+  // Only render when there are degraded capabilities — no banner when everything works
   if (degradedItems.length === 0) {
-    return (
-      <div className="border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-4 py-1 text-[11px] font-mono flex items-center justify-between text-neutral-500">
-        <div className="flex items-center gap-1.5 text-teal-700 dark:text-teal-400">
-          <CheckCircle2 className="w-3 h-3 text-teal-600" />
-          <span>Full Pipeline Active (Gemini LLM • Voyage AI • Docling Tables • DeBERTa NLI)</span>
-        </div>
-        <div>Engine v0.4.0</div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -49,7 +42,7 @@ export const SystemCapabilitiesBanner: React.FC<SystemCapabilitiesBannerProps> =
       <div className="flex items-start gap-2">
         <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
         <div className="space-y-0.5 flex-1">
-          <span className="font-semibold font-mono">System Capability Notice (Graceful Degradation):</span>
+          <span className="font-semibold font-mono">Degraded capabilities:</span>
           <ul className="list-disc list-inside font-mono text-[11px] text-amber-900/90 dark:text-amber-300/90">
             {degradedItems.map((item, idx) => (
               <li key={idx}>{item}</li>

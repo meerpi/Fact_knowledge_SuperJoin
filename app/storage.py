@@ -130,10 +130,18 @@ class SQLiteStorage:
         return DocumentData.model_validate_json(row["data"])
 
     def list_documents(self) -> list[dict[str, Any]]:
-        """List summary metadata for all stored documents."""
+        """List summary metadata for all stored documents, including extracted facts status."""
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT doc_id, filename, page_count, created_at FROM documents ORDER BY created_at DESC")
+        cursor.execute(
+            """
+            SELECT d.doc_id, d.filename, d.page_count, d.created_at,
+                   CASE WHEN ef.doc_id IS NOT NULL THEN 1 ELSE 0 END AS has_extracted_facts
+            FROM documents d
+            LEFT JOIN extracted_facts ef ON d.doc_id = ef.doc_id
+            ORDER BY d.created_at DESC
+            """
+        )
         rows = cursor.fetchall()
         return [
             {
@@ -141,6 +149,7 @@ class SQLiteStorage:
                 "filename": r["filename"],
                 "page_count": r["page_count"],
                 "created_at": r["created_at"],
+                "has_extracted_facts": bool(r["has_extracted_facts"]),
             }
             for r in rows
         ]
@@ -156,8 +165,20 @@ class SQLiteStorage:
         """Delete a document and cascade associated records."""
         conn = self._get_connection()
         with conn:
+            conn.execute("DELETE FROM extracted_facts WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM contradiction_reports WHERE doc_id = ? OR cross_doc_id = ?", (doc_id, doc_id))
             cursor = conn.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
             return cursor.rowcount > 0
+
+    def clear_all_documents(self) -> int:
+        """Clear all documents and associated analysis records from storage."""
+        conn = self._get_connection()
+        with conn:
+            conn.execute("DELETE FROM extracted_facts;")
+            conn.execute("DELETE FROM contradiction_reports;")
+            conn.execute("DELETE FROM claim_graphs;")
+            cursor = conn.execute("DELETE FROM documents;")
+            return cursor.rowcount
 
     # -----------------------------------------------------------------------
     # Extracted Facts Operations
@@ -216,6 +237,20 @@ class SQLiteStorage:
             ef = ExtractedFacts.model_validate_json(row["data"])
             results[row["doc_id"]] = ef.facts
         return results
+
+    def delete_extracted_facts(self, doc_id: str) -> bool:
+        """Delete extracted facts for a document without deleting the document itself."""
+        conn = self._get_connection()
+        with conn:
+            cursor = conn.execute("DELETE FROM extracted_facts WHERE doc_id = ?", (doc_id,))
+            return cursor.rowcount > 0
+
+    def clear_all_extracted_facts(self) -> int:
+        """Clear extracted facts for all documents."""
+        conn = self._get_connection()
+        with conn:
+            cursor = conn.execute("DELETE FROM extracted_facts;")
+            return cursor.rowcount
 
     # -----------------------------------------------------------------------
     # Contradiction Report Operations

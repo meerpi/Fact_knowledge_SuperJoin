@@ -1,8 +1,24 @@
-"""Tests for UI companion endpoints in app.server."""
-
+import os
+import tempfile
 import pytest
 from starlette.testclient import TestClient
-from app.server import app, storage, reconciliation_db
+import app.server as server_module
+from app.server import app
+from app.storage import SQLiteStorage
+
+
+@pytest.fixture(autouse=True)
+def isolated_storage():
+    orig_storage = server_module.storage
+    temp_fd, temp_path = tempfile.mkstemp(suffix=".db")
+    os.close(temp_fd)
+    server_module.storage = SQLiteStorage(temp_path)
+    yield
+    server_module.storage = orig_storage
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass
 
 
 @pytest.fixture
@@ -79,10 +95,11 @@ def test_seed_demo_and_cases(client):
 
 def test_document_file_and_word_bboxes(client):
     # Ensure starter doc is seeded
-    client.post("/system/seed-demo")
+    seed_res = client.post("/system/seed-demo")
+    assert seed_res.status_code == 200
+    docs_map = seed_res.json().get("documents", {})
+    doc_id = list(docs_map.keys())[0] if docs_map else "0bcab8c03589"
 
-    # 30c1078a0718 is the Economic Survey doc
-    doc_id = "30c1078a0718"
     file_resp = client.get(f"/documents/{doc_id}/file")
     assert file_resp.status_code == 200
     assert file_resp.headers["content-type"] == "application/pdf"
@@ -91,12 +108,12 @@ def test_document_file_and_word_bboxes(client):
     missing_file = client.get("/documents/nonexistent_doc_id/file")
     assert missing_file.status_code == 404
 
-    # Word bboxes for page 19
-    bbox_resp = client.get(f"/documents/{doc_id}/page/19/word-bboxes")
+    # Word bboxes for page 0
+    bbox_resp = client.get(f"/documents/{doc_id}/page/0/word-bboxes")
     assert bbox_resp.status_code == 200
     bbox_data = bbox_resp.json()
     assert bbox_data["doc_id"] == doc_id
-    assert bbox_data["page_num"] == 19
+    assert bbox_data["page_num"] == 0
     assert isinstance(bbox_data["words"], list)
     assert len(bbox_data["words"]) > 0
     first_word = bbox_data["words"][0]
@@ -111,8 +128,12 @@ def test_document_file_and_word_bboxes(client):
 
 
 def test_pipeline_status_lifecycle(client):
-    client.post("/system/seed-demo")
-    start_resp = client.post("/pipeline/start", json={"doc_ids": ["30c1078a0718"]})
+    seed_res = client.post("/system/seed-demo")
+    assert seed_res.status_code == 200
+    docs_map = seed_res.json().get("documents", {})
+    doc_id = list(docs_map.keys())[0] if docs_map else "0bcab8c03589"
+
+    start_resp = client.post("/pipeline/start", json={"doc_ids": [doc_id]})
     assert start_resp.status_code == 200
     data = start_resp.json()
     assert "job_id" in data
