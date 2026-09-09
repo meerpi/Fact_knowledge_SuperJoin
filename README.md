@@ -75,8 +75,7 @@ PYTHONPATH=. .venv/bin/pytest -v
 
 ## 2. Video Demo
 
-- **Demo Video Link:** `[Insert YouTube / Loom / Google Drive link here]` *(Strictly $\le$ 3 minutes)*
-- **Demo Video Script:** Formatted in [`VIDEO_SCRIPT.md`](VIDEO_SCRIPT.md).
+- **Demo Video Link:** [Google Drive Demo Video](https://drive.google.com/file/d/1G0tMmH70BHjjhN0yQnnQoJHa67q8sjD0/view?usp=sharing) *(Duration $\le$ 3 minutes)*
 - **What the Video Shows:**
   1. A PDF being uploaded and processed through the layout parser.
   2. All four required assignment cases demonstrated live across the Delhivery corpus.
